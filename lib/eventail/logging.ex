@@ -1,12 +1,14 @@
-defmodule Eventail.Log do
-  use GenServer
-  @log_exchange "logs"
-  @log_exchange_type :topic
+defmodule Eventail.Logging do
+  @moduledoc """
+  EDA logging API
+  """
 
-  @spec start_link(atom()) :: GenServer.on_start()
-  def start_link(channed_id) do
-    GenServer.start_link(__MODULE__, channed_id)
-  end
+  @exchange "logs"
+  @exchange_type :topic
+
+  #
+  # Public API
+  #
 
   @spec emergency(Eventail.Endpoint.t(), String.t(), String.t(), String.t(), keyword()) :: :ok
   def emergency(endpoint, short, full, conversation_id, addtional_fields \\ []) do
@@ -48,6 +50,24 @@ defmodule Eventail.Log do
     log(endpoint, :DEBUG, 7, short, full, conversation_id, addtional_fields)
   end
 
+  #
+  # Internal API
+  #
+
+  @spec setup(AMQP.Channel.t()) :: :ok
+  def setup(channel) do
+    :ok = AMQP.Exchange.declare(channel, @exchange, @exchange_type, durable: true)
+  end
+
+  @spec publish(AMQP.Channel.t(), String.t(), binary()) :: :ok | :error
+  def publish(channel, routing_key, payload) do
+    AMQP.Basic.publish(channel, @exchange, routing_key, payload)
+  end
+
+  #
+  # Private functions
+  #
+
   defp log(
          endpoint,
          criticity_name,
@@ -71,61 +91,15 @@ defmodule Eventail.Log do
       |> Map.put("_logical_service", endpoint.logical_service)
       |> Map.put("_worker_pid", inspect(self()))
 
-    ex_gelf = Enum.reduce(additional_fields, gelf, fn {k, v}, m -> Map.put(m, "_" <> k, v) end)
+    ex_gelf =
+      Enum.reduce(additional_fields, gelf, fn {k, v}, m ->
+        Map.put(m, "_" <> Atom.to_string(k), v)
+      end)
+
     routing_key = "#{endpoint.logical_service}.#{criticity_name}"
-    GenServer.cast(endpoint.log, {:publish, routing_key, ex_gelf})
-  end
 
-  # GenServer
-
-  @impl GenServer
-  def init(logical_service) do
-    send(self(), :setup)
-    {:ok, %{channel: nil, logical_service: logical_service}}
-  end
-
-  @impl GenServer
-  def handle_cast({:publish, routing_key, gelf}, state) do
-    unless state.channel == nil do
-      AMQP.Basic.publish(state.channel, @log_exchange, routing_key, gelf)
-      # TODO: else
-    end
-
-    {:noreply, state}
-  end
-
-  @impl GenServer
-  def handle_info(:setup, %{logical_service: logical_service} = state) do
-    case setup(logical_service) do
-      {:ok, chan} ->
-        {:noreply, Map.put(state, :channel, chan)}
-
-      _ ->
-        {:noreply, state}
-    end
-  end
-
-  @impl GenServer
-  def handle_info({:DOWN, _, :process, pid, _reason}, %{channel: %{pid: pid}} = state) do
-    send(self(), :setup)
-    {:noreply, Map.put(state, :channel, nil)}
-  end
-
-  @spec setup(atom()) :: {:ok, AMQP.Channel.t()} | {:error, :retrying}
-  defp setup(logical_service) do
-    case Eventail.open_channel(logical_service) do
-      {:ok, chan} ->
-        Process.monitor(chan.pid)
-        :ok = setup_topology(chan)
-        {:ok, chan}
-
-      _error ->
-        Process.send_after(self(), :setup, 1000)
-        {:error, :retrying}
-    end
-  end
-
-  defp setup_topology(channel) do
-    AMQP.Exchange.declare(channel, @log_exchange, @log_exchange_type, durable: true)
+    # Privacy in Elixir does not extend to submodules (there is no such concept as submodule anyway).
+    # So, we cast directly instead of using a function of `Eventail` that would have to be made public.
+    GenServer.cast(endpoint.pid, {:log, routing_key, Jason.encode!(ex_gelf)})
   end
 end

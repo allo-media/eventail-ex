@@ -23,6 +23,7 @@ defmodule Eventail.MixProject do
     [
       {:amqp, "~> 3.1.1"},
       {:cbor, "~> 1.0.0"},
+      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.3"}
     ]
