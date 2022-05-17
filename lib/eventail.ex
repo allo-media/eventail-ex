@@ -18,9 +18,9 @@ defmodule Eventail do
   Start an AMQP Connection supervisor.
   * `hosts`: a list of rabbitmq hosts (from the same cluster)
   * `name`: the name of this connection
-  * `exclusive_queues`: use private, non-durable queues?
+  * `exclusive_queues`: use private, non-durable queues
   * `events`: list of the event names (routing keys) to subscribe to
-  * `cammands`: list of the command/result names (routing keys) to subscribe to
+  * `commands`: list of the command/result names (routing keys) to subscribe to
   """
   @spec start_link(
           hosts: list(String.t()),
@@ -37,19 +37,13 @@ defmodule Eventail do
         events: events,
         commands: commands
       ) do
-    endpoint = %Endpoint{logical_service: name, pid: nil, hostname: get_hostname()}
-
     GenServer.start_link(
       __MODULE__,
-      %{
+      [
         hosts: hosts,
-        endpoint: endpoint,
-        connection: nil,
-        log_channel: nil,
-        business_channel: nil,
-        conf_channel: nil,
+        name: name,
         setup: [exclusive_queues: exclusive_queues, events: events, commands: commands]
-      },
+      ],
       name: name
     )
   end
@@ -64,10 +58,20 @@ defmodule Eventail do
   #
 
   @impl GenServer
-  def init(%{endpoint: endpoint} = state) do
+  def init(hosts: hosts, name: logical_service, setup: setup) do
+    endpoint = %Endpoint{logical_service: logical_service, pid: self(), hostname: get_hostname()}
     send(self(), :connect)
-    resolved_endpoint = %{endpoint | pid: self()}
-    {:ok, %{state | endpoint: resolved_endpoint}}
+
+    {:ok,
+     %{
+       hosts: hosts,
+       endpoint: endpoint,
+       connection: nil,
+       log_channel: nil,
+       business_channel: nil,
+       conf_channel: nil,
+       setup: setup
+     }}
   end
 
   @impl GenServer
