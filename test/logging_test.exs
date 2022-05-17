@@ -22,7 +22,13 @@ defmodule LoggingTest do
 
   test "publish log event", context do
     # Prepare test listener
-    {:ok, conn} = AMQP.Connection.open()
+    {:ok, conn} =
+      AMQP.Connection.open(
+        System.get_env("BROKERS", "amqp://localhost")
+        |> String.split(",")
+        |> List.first()
+      )
+
     {:ok, chan} = AMQP.Channel.open(conn)
     {:ok, %{queue: test_queue}} = AMQP.Queue.declare(chan, "test_queue", exclusive: true)
     AMQP.Queue.bind(chan, test_queue, Logging.exchange(), routing_key: "#")
