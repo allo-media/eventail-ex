@@ -145,7 +145,7 @@ defmodule Eventail do
     end
   end
 
-  def get_hostname() do
+  def get_hostname do
     {:ok, hostname} = :inet.gethostname()
     List.to_string(hostname)
   end
