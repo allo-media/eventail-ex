@@ -64,6 +64,11 @@ defmodule Eventail.Logging do
     AMQP.Basic.publish(channel, @exchange, routing_key, payload)
   end
 
+  # For tests
+  def exchange do
+    @exchange
+  end
+
   #
   # Private functions
   #
