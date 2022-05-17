@@ -55,7 +55,7 @@ jobs:
           command: mix format --check-formatted
       - run:
           name: "Run credo static code analysis tool"
-          command: mix credo --strict
+          command: mix credo --strict --ignore todo
 
       - restore_cache:
           keys:
