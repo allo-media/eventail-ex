@@ -7,7 +7,7 @@ jobs:
       - image: cimg/elixir:1.13
         environment:
           MIX_ENV: test
-          BROKERS: ampq://event_broker
+          BROKERS: amqp://event_broker
 
       - image: rabbitmq:alpine
         name: event_broker
