@@ -24,9 +24,7 @@ defmodule LoggingTest do
     # Prepare test listener
     {:ok, conn} =
       AMQP.Connection.open(
-        System.get_env("BROKERS", "amqp://localhost")
-        |> String.split(",")
-        |> List.first()
+        hosts() |> List.first()
       )
 
     {:ok, chan} = AMQP.Channel.open(conn)
