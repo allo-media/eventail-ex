@@ -10,9 +10,7 @@ defmodule LoggingTest do
          [
            hosts: hosts(),
            name: :log_test,
-           exclusive_queues: true,
-           events: [],
-           commands: []
+           setup: [exclusive_queues: true]
          ]},
         restart: :temporary
       )
@@ -22,10 +20,7 @@ defmodule LoggingTest do
 
   test "publish log event", context do
     # Prepare test listener
-    {:ok, conn} =
-      AMQP.Connection.open(
-        hosts() |> List.first()
-      )
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
 
     {:ok, chan} = AMQP.Channel.open(conn)
     {:ok, %{queue: test_queue}} = AMQP.Queue.declare(chan, "test_queue", exclusive: true)

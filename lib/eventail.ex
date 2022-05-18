@@ -14,35 +14,50 @@ defmodule Eventail do
   @reconnect_interval 2_000
   @heartbeat 5
 
+  #
+  # Public API
+  #
+
+  @type config :: [option]
+
+  @typedoc """
+  Options values for Enpoint configuration.
+
+  * `exclusive_queues`: use private, non-durable queues (default to `false`)
+  * `prefetch_count`: tells RabbitMQ how many eventspending acknowledgment to push (default to `10`)
+  * `events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
+  * `commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
+  """
+  @type option ::
+          {:exclusive_queues, boolean()}
+          | {:prefetch_count, integer()}
+          | {:events, list(String.t())}
+          | {:commands, list(String.t())}
+
   @doc """
   Start an AMQP Connection supervisor.
   * `hosts`: a list of rabbitmq hosts (from the same cluster)
   * `name`: the name of this connection
-  * `exclusive_queues`: use private, non-durable queues
-  * `events`: list of the event names (routing keys) to subscribe to
-  * `commands`: list of the command/result names (routing keys) to subscribe to
+  * `setup`: `t:config/0`
+
   """
   @spec start_link(
           hosts: list(String.t()),
           name: atom(),
-          exclusive_queues: boolean(),
-          events: list(String.t()),
-          commands: list(String.t())
+          setup: config()
         ) ::
           {:ok, pid} | {:error, term} | :ignore
   def start_link(
         hosts: hosts,
         name: name,
-        exclusive_queues: exclusive_queues,
-        events: events,
-        commands: commands
+        setup: config
       ) do
     GenServer.start_link(
       __MODULE__,
       [
         hosts: hosts,
         name: name,
-        setup: [exclusive_queues: exclusive_queues, events: events, commands: commands]
+        setup: setup(config)
       ],
       name: name
     )
@@ -149,8 +164,22 @@ defmodule Eventail do
     end
   end
 
-  def get_hostname do
+  defp get_hostname do
     {:ok, hostname} = :inet.gethostname()
     List.to_string(hostname)
+  end
+
+  @spec setup(config()) :: map()
+  defp setup(options) do
+    defaults = %{
+      exclusive_queues: false,
+      prefetch_count: 10,
+      events: [],
+      commands: []
+    }
+
+    Enum.reduce(options, defaults, fn {k, v}, m ->
+      Map.put(m, k, v)
+    end)
   end
 end

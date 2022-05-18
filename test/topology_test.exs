@@ -7,9 +7,9 @@ defmodule TopologyTest do
       Eventail.start_link(
         hosts: hosts(),
         name: :events_only,
-        exclusive_queues: false,
-        events: ["PlayPressed", "StopPressed"],
-        commands: []
+        setup: [
+          events: ["PlayPressed", "StopPressed"]
+        ]
       )
 
     assert %Eventail.Endpoint{pid: ^pid, logical_service: :events_only, hostname: _} =
@@ -21,9 +21,9 @@ defmodule TopologyTest do
       Eventail.start_link(
         hosts: hosts(),
         name: :cmd_only,
-        exclusive_queues: false,
-        events: [],
-        commands: ["Echo", "Add"]
+        setup: [
+          commands: ["Echo", "Add"]
+        ]
       )
 
     assert %Eventail.Endpoint{pid: ^pid, logical_service: :cmd_only, hostname: _} =
@@ -35,9 +35,11 @@ defmodule TopologyTest do
       Eventail.start_link(
         hosts: hosts(),
         name: :private_queues,
-        exclusive_queues: true,
-        events: ["PlayPressed", "StopPressed"],
-        commands: ["Echo"]
+        setup: [
+          exclusive_queues: true,
+          events: ["PlayPressed", "StopPressed"],
+          commands: ["Echo"]
+        ]
       )
 
     assert %Eventail.Endpoint{pid: ^pid, logical_service: :private_queues, hostname: _} =

@@ -7,26 +7,20 @@ defmodule Eventail.Business do
   @cmd_exchange "commands"
   @event_exchange_type :topic
   @cmd_exchange_type :topic
-  # default prefetch count
-  # TODO: let user override it when subscribing
-  @prefetch_count 10
 
   #
   # Internal API
   #
 
-  @spec setup(AMQP.Channel.t(), atom(),
-          exclusive_queues: boolean(),
-          events: list(String.t()),
-          commands: list(String.t())
-        ) :: :ok
-  def setup(channel, logical_service,
+  @spec setup(AMQP.Channel.t(), atom(), map()) :: :ok
+  def setup(channel, logical_service, %{
         exclusive_queues: exclusive_queues,
+        prefetch_count: prefetch_count,
         events: events,
         commands: commands
-      ) do
+      }) do
     :ok = AMQP.Confirm.select(channel)
-    :ok = AMQP.Basic.qos(channel, prefetch_count: @prefetch_count)
+    :ok = AMQP.Basic.qos(channel, prefetch_count: prefetch_count)
     :ok = AMQP.Exchange.declare(channel, @event_exchange, @event_exchange_type, durable: true)
     :ok = AMQP.Exchange.declare(channel, @cmd_exchange, @cmd_exchange_type, durable: true)
     setup_events(channel, logical_service, exclusive_queues, events)
