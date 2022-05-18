@@ -1,6 +1,8 @@
 defmodule Eventail do
   @moduledoc """
   Eventail for Elixir.
+
+  This module contains the functions to configure and start an EDA endpoint service.
   """
 
   alias AMQP.Channel
@@ -23,16 +25,25 @@ defmodule Eventail do
   @typedoc """
   Options values for Enpoint configuration.
 
-  * `exclusive_queues`: use private, non-durable queues (default to `false`)
-  * `prefetch_count`: tells RabbitMQ how many eventspending acknowledgment to push (default to `10`)
-  * `events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
-  * `commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
+  * `:exclusive_queues`: use private, non-durable queues (default to `false`)
+  * `:prefetch_count`: tells RabbitMQ how many events pending acknowledgment to push (default to `10`).
+     If the concurrent message processing option is set, that value is the maximum number of messages
+     handled concurrently.
+  * `:concurrent_processing`: if set, the incoming messages will be processed concurrently (defaults to false).
+     Don't set this option if you must process the incoming messages in order!
+     If message order is not important, concurrency is only useful if your handlers do a lot of work or I/O (
+     for example, they query databases or REST APIs).
+  * `:events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
+  * `:commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
+  * `:handlers`: A module implementing the `Eventail.Handlers` behavior (defaults to nil)
   """
   @type option ::
           {:exclusive_queues, boolean()}
           | {:prefetch_count, integer()}
+          | {:concurrent_processing, boolean()}
           | {:events, list(String.t())}
           | {:commands, list(String.t())}
+          | {:handlers, module() | nil}
 
   @doc """
   Start an AMQP Connection supervisor.
@@ -149,6 +160,35 @@ defmodule Eventail do
      %{state | connection: nil, log_channel: nil, business_channel: nil, conf_channel: nil}}
   end
 
+  # Confirmation sent by the broker after registering this process as a consumer
+  @impl GenServer
+  def handle_info({:basic_consume_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  # Sent by the broker when the consumer is unexpectedly cancelled (such as after a queue deletion)
+  @impl GenServer
+  def handle_info({:basic_cancel, %{consumer_tag: _consumer_tag}}, state) do
+    {:stop, :normal, state}
+  end
+
+  # Confirmation sent by the broker to the consumer process after a Basic.cancel
+  @impl GenServer
+  def handle_info({:basic_cancel_ok, %{consumer_tag: _consumer_tag}}, state) do
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info(
+        {:basic_deliver, payload, %{delivery_tag: tag, redelivered: redelivered}} = meta,
+        %{endpoint: endpoint, setup: setup} = state
+      ) do
+    Logger.info(inspect(meta))
+    {:noreply, state}
+  end
+
+  #
+
   defp connect([]) do
     {:error, "All known brokers are unavailable"}
   end
@@ -174,12 +214,21 @@ defmodule Eventail do
     defaults = %{
       exclusive_queues: false,
       prefetch_count: 10,
+      concurrent_processing: false,
       events: [],
-      commands: []
+      commands: [],
+      handlers: nil
     }
 
-    Enum.reduce(options, defaults, fn {k, v}, m ->
-      Map.put(m, k, v)
-    end)
+    config =
+      Enum.reduce(options, defaults, fn {k, v}, m ->
+        Map.put(m, k, v)
+      end)
+
+    # Handlers must exist if subscriptions are not empty
+    (Enum.empty?(config.events) and Enum.empty?(config.commands)) or config.handlers != nil or
+      raise "Missing handlers for subscriptions!"
+
+    config
   end
 end

@@ -46,6 +46,7 @@ defmodule Eventail.Business do
       )
 
     bind(channel, event_q, @event_exchange, events)
+    {:ok, _} = AMQP.Basic.consume(channel, evt_qname)
   end
 
   defp setup_commands(_, _, _, []) do
@@ -67,6 +68,7 @@ defmodule Eventail.Business do
       )
 
     bind(channel, cmd_q, @cmd_exchange, commands)
+    {:ok, _} = AMQP.Basic.consume(channel, cmd_qname)
   end
 
   defp bind(_, _, _, []) do
