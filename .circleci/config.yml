@@ -1,0 +1,94 @@
+---
+version: 2
+
+jobs:
+  test:
+    docker:
+      - image: cimg/elixir:1.13
+        environment:
+          MIX_ENV: test
+          BROKERS: amqp://event_broker
+
+      - image: rabbitmq:alpine
+        name: event_broker
+
+    working_directory: ~/app
+
+    steps:
+      - checkout
+
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+
+      - restore_cache:
+          keys:
+            - mix-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}-{{ checksum "mix.lock" }}
+            - mix-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}
+            - mix-cache-{{ .Environment.CACHE_VERSION }}
+      - restore_cache:
+          keys:
+            - build-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}
+            - build-cache-{{ .Environment.CACHE_VERSION }}
+
+      - run:
+          name: "Get dependencies and compile"
+          command: mix do deps.get, compile --warnings-as-errors
+
+      - save_cache:
+          key: mix-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}-{{ checksum "mix.lock" }}
+          paths: "deps"
+      - save_cache:
+          key: mix-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}
+          paths: "deps"
+      - save_cache:
+          key: mix-cache-{{ .Environment.CACHE_VERSION }}
+          paths: "deps"
+      - save_cache:
+          key: build-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}
+          paths: "_build"
+      - save_cache:
+          key: build-cache-{{ .Environment.CACHE_VERSION }}
+          paths: "_build"
+
+      - run:
+          name: "Check code formatting"
+          command: mix format --check-formatted
+      - run:
+          name: "Run credo static code analysis tool"
+          command: mix credo --strict --ignore todo
+
+      - restore_cache:
+          keys:
+            - plt-cache-{{ .Environment.CACHE_VERSION }}-{{ checksum "mix.lock" }}
+
+      - run:
+          name: "Prepare dialyzer"
+          command: mix dialyzer --plt
+
+      - save_cache:
+          key: plt-cache-{{ .Environment.CACHE_VERSION }}-{{ checksum "mix.lock" }}
+          paths: "priv/plts"
+
+      - run:
+          name: "Run dialyzer static code analysis tool"
+          command: MIX_ENV=dev mix dialyzer
+
+      - run:
+          name: Wait for RabbitMQ
+          command: dockerize -wait tcp://event_broker:5672 -timeout 1m
+
+      - run:
+          name: "Run tests"
+          command: mix test
+
+      - store_test_results:
+          path: _build/test/lib/eventail-rs
+
+      - store_artifacts:
+          path: cover
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test
