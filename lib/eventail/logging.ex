@@ -54,11 +54,13 @@ defmodule Eventail.Logging do
   # Internal API
   #
 
+  @doc false
   @spec setup(AMQP.Channel.t()) :: :ok
   def setup(channel) do
     :ok = AMQP.Exchange.declare(channel, @exchange, @exchange_type, durable: true)
   end
 
+  @doc false
   @spec publish(AMQP.Channel.t(), String.t(), binary()) :: :ok | :error
   def publish(channel, routing_key, payload) do
     AMQP.Basic.publish(channel, @exchange, routing_key, payload)

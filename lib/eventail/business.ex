@@ -12,6 +12,7 @@ defmodule Eventail.Business do
   # Internal API
   #
 
+  @doc false
   @spec setup(AMQP.Channel.t(), atom(), map()) :: :ok
   def setup(channel, logical_service, %{
         exclusive_queues: exclusive_queues,

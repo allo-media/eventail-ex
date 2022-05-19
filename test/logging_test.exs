@@ -9,6 +9,7 @@ defmodule LoggingTest do
         {Eventail,
          [
            hosts: hosts(),
+           logical_service: :log_test_service,
            name: :log_test,
            setup: [exclusive_queues: true]
          ]},

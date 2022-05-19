@@ -48,18 +48,20 @@ defmodule Eventail do
   @doc """
   Start an AMQP Connection supervisor.
   * `hosts`: a list of rabbitmq hosts (from the same cluster)
-  * `name`: the name of this connection
+  * `logical_service`: the logical service name to which this endpoint belongs.
   * `setup`: `t:config/0`
 
   """
   @spec start_link(
           hosts: list(String.t()),
+          logical_service: atom(),
           name: atom(),
           setup: config()
         ) ::
           {:ok, pid} | {:error, term} | :ignore
   def start_link(
         hosts: hosts,
+        logical_service: logical_service,
         name: name,
         setup: config
       ) do
@@ -67,13 +69,17 @@ defmodule Eventail do
       __MODULE__,
       [
         hosts: hosts,
-        name: name,
+        logical_service: logical_service,
         setup: setup(config)
       ],
       name: name
     )
   end
 
+  @doc """
+  Retrieve the endpoint descriptor for the given endpoint name or pid.
+  The endpoint descriptor is required by all the API functions.
+  """
   @spec get_endpoint(pid() | atom()) :: Endpoint.t()
   def get_endpoint(id) do
     GenServer.call(id, :get)
@@ -84,7 +90,7 @@ defmodule Eventail do
   #
 
   @impl GenServer
-  def init(hosts: hosts, name: logical_service, setup: setup) do
+  def init(hosts: hosts, logical_service: logical_service, setup: setup) do
     endpoint = %Endpoint{logical_service: logical_service, pid: self(), hostname: get_hostname()}
     send(self(), :connect)
 

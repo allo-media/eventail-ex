@@ -25,6 +25,7 @@ defmodule TopologyTest do
     {:ok, pid} =
       Eventail.start_link(
         hosts: hosts(),
+        logical_service: :test_topo_events,
         name: :events_only,
         setup: [
           events: ["PlayPressed", "StopPressed"],
@@ -32,7 +33,7 @@ defmodule TopologyTest do
         ]
       )
 
-    assert %Eventail.Endpoint{pid: ^pid, logical_service: :events_only, hostname: _} =
+    assert %Eventail.Endpoint{pid: ^pid, logical_service: :test_topo_events, hostname: _} =
              Eventail.get_endpoint(:events_only)
   end
 
@@ -40,6 +41,7 @@ defmodule TopologyTest do
     {:ok, pid} =
       Eventail.start_link(
         hosts: hosts(),
+        logical_service: :test_topo_cmd,
         name: :cmd_only,
         setup: [
           commands: ["Echo", "Add"],
@@ -47,7 +49,7 @@ defmodule TopologyTest do
         ]
       )
 
-    assert %Eventail.Endpoint{pid: ^pid, logical_service: :cmd_only, hostname: _} =
+    assert %Eventail.Endpoint{pid: ^pid, logical_service: :test_topo_cmd, hostname: _} =
              Eventail.get_endpoint(:cmd_only)
   end
 
@@ -55,6 +57,7 @@ defmodule TopologyTest do
     {:ok, pid} =
       Eventail.start_link(
         hosts: hosts(),
+        logical_service: :test_topo_exclusive,
         name: :private_queues,
         setup: [
           exclusive_queues: true,
@@ -64,7 +67,7 @@ defmodule TopologyTest do
         ]
       )
 
-    assert %Eventail.Endpoint{pid: ^pid, logical_service: :private_queues, hostname: _} =
+    assert %Eventail.Endpoint{pid: ^pid, logical_service: :test_topo_exclusive, hostname: _} =
              Eventail.get_endpoint(:private_queues)
   end
 
@@ -72,9 +75,9 @@ defmodule TopologyTest do
     assert_raise RuntimeError, "Missing handlers for subscriptions!", fn ->
       Eventail.start_link(
         hosts: hosts(),
-        name: :private_queues,
+        logical_service: :test_topo_error,
+        name: :missing_handlers,
         setup: [
-          exclusive_queues: true,
           events: ["PlayPressed", "StopPressed"],
           commands: ["Echo"]
         ]

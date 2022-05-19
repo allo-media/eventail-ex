@@ -17,7 +17,7 @@ defmodule Eventail.Handlers do
   Handle received event.
 
   This callback is called with the following positional arguments:
-    - `endpoint`: the struct identifying the endpoint that received the event.
+    - `endpoint`: the descriptor of the endpoint that received the event.
       This endpoint can be used to log and publish events or commands.
     - `event`: the event name (routing key)
     - `payload`: the event payload as a term
@@ -31,7 +31,7 @@ defmodule Eventail.Handlers do
   Handle received command.
 
   This callback is called with the following positional arguments:
-    - `endpoint`: the struct identifying the endpoint that received the command.
+    - `endpoint`: the descriptor of the endpoint that received the command.
       This endpoint can be used to log and must be used to publish the outcome of the command.
     - `command`: the command name (routing key)
     - `payload`: the command payload as a term
@@ -55,7 +55,7 @@ defmodule Eventail.Handlers do
   Handle received result (command outcome).
 
   This callback is called with the following positional arguments:
-    - `endpoint`: the struct identifying the endpoint that received the result.
+    - `endpoint`: the descriptor of the endpoint that received the result.
       This endpoint can be used to log.
     - `key`: the result routing key (that's the `reply_to` that was sent with the command)
     - `payload`: the result payload as a term
