@@ -4,11 +4,12 @@ defmodule Eventail.Handlers do
 
   A handler module is registered into an Endpoint when that service is started. See `Eventail.start_link/1`.
 
-  Upon a subscribed message reception, the endpoint will call the appropriate callback in a new `Task`, so
-  that all received messages (up to `prefetch_count`, see `Eventail.option.t/0`) will be processed in parallel.
-
   If an handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
   dead-letter exchange if one is configured.
+
+  All the handlers are passed a `context` map containing message context from the EDA.
+  If the enpoint was provided application context, it will be
+  injected into the context under the `app_context` key.
   """
 
   alias Eventail.Endpoint
@@ -22,7 +23,7 @@ defmodule Eventail.Handlers do
     - `event`: the event name (routing key)
     - `payload`: the event payload as a term
     - `conversation_id`: to trace message chains
-    - `meta`:  a map of additional headers and properties relevant to the EDA
+    - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
   """
   @callback handle_event(Endpoint.t(), String.t(), term(), String.t(), map()) :: :ok
@@ -38,7 +39,7 @@ defmodule Eventail.Handlers do
     - `conversation_id`: to trace message chains
     - `reply_to`: where to send the command's outcome
     - `correlation_id`: must be copied on the outcome so the sender can match it
-    - `meta`:  a map of additional headers and properties relevant to the EDA
+    - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
   """
   @callback handle_command(
@@ -60,9 +61,9 @@ defmodule Eventail.Handlers do
     - `key`: the result routing key (that's the `reply_to` that was sent with the command)
     - `payload`: the result payload as a term
     - `conversation_id`: to trace message chains
-    - `status`: the result status: `:ok` if success, else `:error`
+    - `status`: the result status: `:success` if success, else `:error`
     - `correlation_id`: this tracing id is the same as the one that was set on the command this message responds to.
-    - `meta`:  a map of additional headers and properties relevant to the EDA
+    - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
   """
   @callback handle_result(
@@ -70,7 +71,7 @@ defmodule Eventail.Handlers do
               String.t(),
               term(),
               String.t(),
-              :ok | :error,
+              :succes | :error,
               String.t(),
               map()
             ) :: :ok

@@ -29,21 +29,23 @@ defmodule Eventail do
   * `:prefetch_count`: tells RabbitMQ how many events pending acknowledgment to push (default to `10`).
      If the concurrent message processing option is set, that value is the maximum number of messages
      handled concurrently.
-  * `:concurrent_processing`: if set, the incoming messages will be processed concurrently (defaults to false).
+  * `:concurrent_handlers`: if set, the incoming messages will be processed concurrently, each in its own task (defaults to false).
      Don't set this option if you must process the incoming messages in order!
      If message order is not important, concurrency is only useful if your handlers do a lot of work or I/O (
      for example, they query databases or REST APIs).
   * `:events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
   * `:commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
   * `:handlers`: A module implementing the `Eventail.Handlers` behavior (defaults to nil)
+  * `app_context`: Application specific context that will be passed as is to the handlers.
   """
   @type option ::
           {:exclusive_queues, boolean()}
           | {:prefetch_count, integer()}
-          | {:concurrent_processing, boolean()}
+          | {:concurrent_handlers, boolean()}
           | {:events, list(String.t())}
           | {:commands, list(String.t())}
           | {:handlers, module() | nil}
+          | {:app_context, term()}
 
   @doc """
   Start an AMQP Connection supervisor.
@@ -174,8 +176,15 @@ defmodule Eventail do
 
   # Sent by the broker when the consumer is unexpectedly cancelled (such as after a queue deletion)
   @impl GenServer
-  def handle_info({:basic_cancel, %{consumer_tag: _consumer_tag}}, state) do
-    {:stop, :normal, state}
+  def handle_info(
+        {:basic_cancel, %{consumer_tag: _consumer_tag}},
+        %{business_channel: business_channel, endpoint: endpoint, setup: setup} = state
+      ) do
+    unless business_channel == nil do
+      Business.setup(business_channel, endpoint.logical_service, setup)
+    end
+
+    {:noreply, state}
   end
 
   # Confirmation sent by the broker to the consumer process after a Basic.cancel
@@ -186,14 +195,70 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info(
-        {:basic_deliver, payload, %{delivery_tag: tag, redelivered: redelivered}} = meta,
-        %{endpoint: endpoint, setup: setup} = state
+        {:basic_deliver, _,
+         %{
+           delivery_tag: tag,
+           headers: :undefined,
+           routing_key: routing_key
+         } = context},
+        %{endpoint: endpoint, business_channel: business_channel} = state
       ) do
-    Logger.info(inspect(meta))
+    Logger.debug(inspect(context))
+
+    Logging.emergency(
+      endpoint,
+      "Missing headers",
+      "No headers on #{routing_key}, dropping message",
+      "none"
+    )
+
+    AMQP.Basic.reject(business_channel, tag, requeue: false)
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info(
+        {:basic_deliver, body,
+         %{
+           headers: context_headers
+         } = context},
+        %{endpoint: endpoint, business_channel: business_channel, setup: setup} = state
+      ) do
+    Logger.debug(inspect(context))
+    eda_headers = headers(context_headers)
+    context = Map.delete(context, :headers) |> Map.put(:app_context, setup.app_context)
+
+    if setup.concurrent_handlers do
+      {:ok, _} =
+        Task.start(Business, :handle_message, [
+          endpoint,
+          business_channel,
+          eda_headers,
+          body,
+          context,
+          setup.handlers
+        ])
+    else
+      Business.handle_message(
+        endpoint,
+        business_channel,
+        eda_headers,
+        body,
+        context,
+        setup.handlers
+      )
+    end
+
     {:noreply, state}
   end
 
   #
+  @spec headers(AMQP.arguments()) :: map()
+  defp headers(amqp_headers) do
+    Enum.reduce(amqp_headers, %{}, fn {k, _, v}, m ->
+      Map.put(m, k, v)
+    end)
+  end
 
   defp connect([]) do
     {:error, "All known brokers are unavailable"}
@@ -220,10 +285,11 @@ defmodule Eventail do
     defaults = %{
       exclusive_queues: false,
       prefetch_count: 10,
-      concurrent_processing: false,
+      concurrent_handlers: false,
       events: [],
       commands: [],
-      handlers: nil
+      handlers: nil,
+      app_context: nil
     }
 
     config =
