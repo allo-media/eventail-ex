@@ -57,6 +57,10 @@ jobs:
           name: "Run credo static code analysis tool"
           command: mix credo --strict --ignore todo
 
+      - run
+          name: "Check documentation"
+          command: mix docs
+
       - restore_cache:
           keys:
             - plt-cache-{{ .Environment.CACHE_VERSION }}-{{ checksum "mix.lock" }}
