@@ -2,6 +2,7 @@ defmodule Eventail.Business do
   @moduledoc """
   EDA business events and commands/results API
   """
+  require Logger
 
   @event_exchange "events"
   @cmd_exchange "commands"
@@ -151,7 +152,7 @@ defmodule Eventail.Business do
       )
 
     bind(channel, event_q, @event_exchange, events)
-    {:ok, _} = AMQP.Basic.consume(channel, evt_qname)
+    {:ok, _} = AMQP.Basic.consume(channel, event_q)
   end
 
   defp setup_commands(_, _, _, []) do
@@ -173,7 +174,7 @@ defmodule Eventail.Business do
       )
 
     bind(channel, cmd_q, @cmd_exchange, commands)
-    {:ok, _} = AMQP.Basic.consume(channel, cmd_qname)
+    {:ok, _} = AMQP.Basic.consume(channel, cmd_q)
   end
 
   defp bind(_, _, _, []) do
@@ -238,11 +239,11 @@ defmodule Eventail.Business do
          handlers
        ) do
     {conversation_id, h} = Map.pop(headers, "conversation_id")
-    {status, h} = Map.pop(h, "status")
+    {status, h} = Map.pop(h, "status", nil)
     app_headers = Map.merge(context, h)
 
     cond do
-      reply_to ->
+      reply_to != :undefined ->
         handlers.handle_command(
           endpoint,
           routing_key,
@@ -256,15 +257,13 @@ defmodule Eventail.Business do
         AMQP.Basic.ack(channel, tag)
 
       status ->
-        sta = String.to_existing_atom(status)
-
         handlers.handle_result(
           endpoint,
           routing_key,
           payload,
           conversation_id,
-          sta,
-          conversation_id,
+          status,
+          correlation_id,
           app_headers
         )
 

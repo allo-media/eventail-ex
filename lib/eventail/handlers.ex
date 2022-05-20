@@ -61,7 +61,7 @@ defmodule Eventail.Handlers do
     - `key`: the result routing key (that's the `reply_to` that was sent with the command)
     - `payload`: the result payload as a term
     - `conversation_id`: to trace message chains
-    - `status`: the result status: `:success` if success, else `:error`
+    - `status`: the result status: `"success"` if success, else `"error"`
     - `correlation_id`: this tracing id is the same as the one that was set on the command this message responds to.
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
@@ -71,8 +71,45 @@ defmodule Eventail.Handlers do
               String.t(),
               term(),
               String.t(),
-              :succes | :error,
+              String.t(),
               String.t(),
               map()
             ) :: :ok
+
+  @doc """
+  Handle local events.
+
+  Local events are internal to the application.
+  Some are defined by Eventail, and others are custom and can be emitted with the `Eventail.publish_local/3`.
+  There are no subscriptions to local events, this handler receives all the local events of its associated
+  endpoint.
+
+  This callback is called with the following positional arguments:
+    - `endpoint`: the descriptor of the associated endpoint
+    - `event`: any term
+    - `context`: a map of additional headers and properties relevant to "local bus". As of now,
+    it only contains the application context under the key `:app_context`.
+
+  Eventail events are:
+    - `:ready` when the endpoint is connected and ready to sent/receive events on the EDA.
+
+
+  To implement a periodic health check (say, every minute), you could do something like
+  ```
+    @impl
+    def handle_local(endpoint, :ready, _) do
+      Eventail.publish_local(endpoint, :health, 60000)
+    end
+
+    @impl
+    def handle_local(endpoint, :health, context) do
+      # do whatever you need to
+      Logging.notice(endpoint, ...)
+    end
+  ```
+
+
+  See also `Eventail.publish_local/3`.
+  """
+  @callback handle_local(Endpoint.t(), any(), map()) :: :ok
 end

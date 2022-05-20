@@ -87,12 +87,28 @@ defmodule Eventail do
     GenServer.call(id, :get)
   end
 
+  @doc """
+  Publisn an event local to the endpoint.
+
+  - `endpoint` is the endpoint descriptor to which send the local event
+  - `event` is any term; it will be passed to the `c:Eventail.Handlers.handle_local/3` handler
+  - `delay` is the duration in millisecond to wait before delivering the message (it won't block this call)
+
+  See also `c:Eventail.Handlers.handle_local/3`.
+  """
+  @spec publish_local(Endpoint.t(), any(), integer()) :: reference()
+  def publish_local(endpoint, event, delay \\ 0) do
+    Process.send_after(endpoint.pid, {:local, event}, delay)
+  end
+
   #
   # GenServer
   #
 
   @impl GenServer
   def init(hosts: hosts, logical_service: logical_service, setup: setup) do
+    # Ensure `terminate` is called on exit
+    Process.flag(:trap_exit, true)
     endpoint = %Endpoint{logical_service: logical_service, pid: self(), hostname: get_hostname()}
     send(self(), :connect)
 
@@ -124,6 +140,19 @@ defmodule Eventail do
   end
 
   @impl GenServer
+  def handle_info({:local, event}, %{endpoint: endpoint, setup: setup} = state) do
+    unless setup.handlers == nil do
+      Task.start(setup.handlers, :handle_local, [
+        endpoint,
+        event,
+        %{app_context: setup.app_context}
+      ])
+    end
+
+    {:noreply, state}
+  end
+
+  @impl GenServer
   def handle_info(
         :connect,
         %{hosts: hosts, endpoint: endpoint, setup: setup} = state
@@ -138,6 +167,7 @@ defmodule Eventail do
         {:ok, log_channel} = Channel.open(conn)
         Logging.setup(log_channel)
         {:ok, conf_channel} = Channel.open(conn)
+        send(self(), {:local, :ready})
 
         {:noreply,
          %{
@@ -161,7 +191,7 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info({:DOWN, _, :process, _pid, reason}, state) do
-    Logger.error("Broker disconnected (#{inspect(reason)}). Reconnecting...")
+    Logger.warning("Broker disconnected (#{inspect(reason)}). Reconnecting...")
     send(self(), :connect)
 
     {:noreply,
@@ -250,6 +280,24 @@ defmodule Eventail do
     end
 
     {:noreply, state}
+  end
+
+  @impl GenServer
+  def terminate(reason, %{
+        endpoint: endpoint,
+        connection: conn,
+        business_channel: business_channel,
+        log_channel: log_channel,
+        conf_channel: conf_channel
+      }) do
+    Logger.info(
+      "Endpoint #{endpoint.logical_service} shutting down for reason #{inspect(reason)}"
+    )
+
+    Channel.close(business_channel)
+    Channel.close(log_channel)
+    Channel.close(conf_channel)
+    Connection.close(conn)
   end
 
   #
