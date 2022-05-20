@@ -48,11 +48,18 @@ defmodule Eventail do
           | {:app_context, term()}
 
   @doc """
-  Start an AMQP Connection supervisor.
+  Start an EDA endpoint.
+
+  The endpoint automatically reconnects itself if the connection is lost.
+
+  Parameters:
+
   * `hosts`: a list of rabbitmq hosts (from the same cluster)
   * `logical_service`: the logical service name to which this endpoint belongs.
   * `setup`: `t:config/0`
 
+
+  The endpoint should be part of a supervision tree.
   """
   @spec start_link(
           hosts: list(String.t()),
@@ -89,6 +96,7 @@ defmodule Eventail do
 
   @doc """
   Publisn an event local to the endpoint.
+  Local events don't go on the EDA.
 
   - `endpoint` is the endpoint descriptor to which send the local event
   - `event` is any term; it will be passed to the `c:Eventail.Handlers.handle_local/3` handler
