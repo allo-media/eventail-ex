@@ -32,7 +32,7 @@ jobs:
 
       - run:
           name: "Get dependencies and compile"
-          command: mix do deps.get, compile --warnings-as-errors
+          command: mix do deps.get, compile, docs --warnings-as-errors
 
       - save_cache:
           key: mix-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}-{{ checksum "mix.lock" }}
@@ -56,10 +56,6 @@ jobs:
       - run:
           name: "Run credo static code analysis tool"
           command: mix credo --strict --ignore todo
-
-      - run:
-          name: "Check documentation"
-          command: mix docs
 
       - restore_cache:
           keys:
