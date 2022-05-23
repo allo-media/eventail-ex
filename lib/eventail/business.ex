@@ -2,7 +2,6 @@ defmodule Eventail.Business do
   @moduledoc """
   EDA business events and commands/results API
   """
-  require Logger
 
   @event_exchange "events"
   @cmd_exchange "commands"
@@ -72,16 +71,16 @@ defmodule Eventail.Business do
     # before we give up and have it moved to the error queue
     exception ->
       if redelivered do
-        Logging.alert(
+        Logging.emergency(
           endpoint,
-          "Unhandled error while processing message #{routing_key}",
+          "Giving up on #{routing_key}",
           inspect(exception),
           conversation_id
         )
       else
-        Logging.emergency(
+        Logging.alert(
           endpoint,
-          "Giving up on #{routing_key}",
+          "Unhandled error while processing message #{routing_key}",
           inspect(exception),
           conversation_id
         )
@@ -148,7 +147,7 @@ defmodule Eventail.Business do
     {:ok, %{queue: event_q}} =
       AMQP.Queue.declare(channel, evt_qname,
         exclusive: exclusive_queues,
-        durable: !exclusive_queues
+        durable: not exclusive_queues
       )
 
     bind(channel, event_q, @event_exchange, events)
@@ -170,7 +169,7 @@ defmodule Eventail.Business do
     {:ok, %{queue: cmd_q}} =
       AMQP.Queue.declare(channel, cmd_qname,
         exclusive: exclusive_queues,
-        durable: !exclusive_queues
+        durable: not exclusive_queues
       )
 
     bind(channel, cmd_q, @cmd_exchange, commands)

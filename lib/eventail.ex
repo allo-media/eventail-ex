@@ -35,8 +35,8 @@ defmodule Eventail do
      for example, they query databases or REST APIs).
   * `:events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
   * `:commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
-  * `:handlers`: A module implementing the `Eventail.Handlers` behavior (defaults to nil)
-  * `app_context`: Application specific context that will be passed as is to the handlers.
+  * `:handlers`: A module implementing the `Eventail.Handlers` behavior (defaults to `nil`)
+  * `app_context`: Application specific context that will be passed as is to the handlers (defaults to `nil`).
   """
   @type option ::
           {:exclusive_queues, boolean()}
@@ -55,7 +55,8 @@ defmodule Eventail do
   Parameters:
 
   * `hosts`: a list of rabbitmq hosts (from the same cluster)
-  * `logical_service`: the logical service name to which this endpoint belongs.
+  * `logical_service`: the logical service name to which this endpoint belongs
+  * `name`: the very own name of the endpoint (process name)
   * `setup`: `t:config/0`
 
 
@@ -98,7 +99,7 @@ defmodule Eventail do
   Publisn an event local to the endpoint.
   Local events don't go on the EDA.
 
-  - `endpoint` is the endpoint descriptor to which send the local event
+  - `endpoint` is the endpoint descriptor to which the local event is to be sent
   - `event` is any term; it will be passed to the `c:Eventail.Handlers.handle_local/3` handler
   - `delay` is the duration in millisecond to wait before delivering the message (it won't block this call)
 
