@@ -15,6 +15,18 @@ defmodule Eventail.Business do
   # Public API
   #
 
+  @doc """
+  Publish an event on the EDA.
+
+  The parameters are:
+  * `endpoint`: the descriptor of the endpoint through which the event is to be sent
+  * `event`: the event name
+  * `message`: the event message, that can be any serializable term, generaly a map or keyword list
+  * `conversation_id`: The unique id of the "event thread" this event participates in. If this event
+  reacts to a previous event, it should repeat the same `conversation_id`
+  * `mandatory`: if this flag is set, the enpoint will crash if there are no subscriptions for the
+  sent event (for debug purposes)
+  """
   @spec publish_event(Endpoint.t(), String.t() | atom(), any(), String.t(), boolean()) :: :ok
   def publish_event(endpoint, event, message, conversation_id, mandatory \\ false) do
     headers = [{"conversation_id", :longstr, conversation_id}]
@@ -199,11 +211,13 @@ defmodule Eventail.Business do
   end
 
   # For tests
+  @doc false
   def event_exchange do
     @event_exchange
   end
 
   # For tests
+  @doc false
   def command_exchange do
     @cmd_exchange
   end

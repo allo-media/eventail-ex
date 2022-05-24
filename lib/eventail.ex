@@ -102,9 +102,12 @@ defmodule Eventail do
   end
 
   # For tests
-  @doc false
-  def get_ets(id) do
-    GenServer.call(id, :ets)
+  @doc """
+  Return the number of published messages awaiting broker confirm.
+  """
+  @spec get_pending_confirms(Endpoint.t()) :: non_neg_integer()
+  def get_pending_confirms(endpoint) do
+    GenServer.call(endpoint.pid, :pending_num)
   end
 
   @doc """
@@ -175,8 +178,8 @@ defmodule Eventail do
   end
 
   @impl GenServer
-  def handle_call(:ets, _, %{pending_ack: pending_ack} = state) do
-    {:reply, pending_ack, state}
+  def handle_call(:pending_num, _, %{pending_ack: pending_ack} = state) do
+    {:reply, :ets.info(pending_ack, :size), state}
   end
 
   @impl GenServer
@@ -443,11 +446,11 @@ defmodule Eventail do
     config
   end
 
-  def resend_messages([]) do
+  defp resend_messages([]) do
     :ok
   end
 
-  def resend_messages([msg | rest]) do
+  defp resend_messages([msg | rest]) do
     GenServer.cast(self(), msg)
     resend_messages(rest)
   end

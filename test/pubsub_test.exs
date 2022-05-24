@@ -265,8 +265,7 @@ defmodule SubscriptionTest do
     Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
     Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
     Process.sleep(100)
-    ptab = Eventail.get_ets(context.endpoint.pid)
-    size = :ets.info(ptab, :size)
+    size = Eventail.get_pending_confirms(context.endpoint)
     assert size == 0
   end
 
