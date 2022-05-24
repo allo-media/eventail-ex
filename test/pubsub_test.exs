@@ -6,6 +6,10 @@ defmodule SubscriptionTest do
   defmodule TestHandler do
     @behaviour Eventail.Handlers
 
+    def handle_event(_, "Malicious", _, _, _) do
+      raise "failed to handle event"
+    end
+
     def handle_event(_endpoint, event, payload, conversation_id, %{app_context: test_pid}) do
       send(test_pid, {event, payload, conversation_id})
       :ok
@@ -32,6 +36,10 @@ defmodule SubscriptionTest do
     def handle_local(_endpoint, :health, %{app_context: test_pid}) do
       send(test_pid, :health)
     end
+
+    def handle_local(_, local_event, %{app_context: test_pid}) do
+      send(test_pid, local_event)
+    end
   end
 
   setup do
@@ -44,7 +52,7 @@ defmodule SubscriptionTest do
            name: :subscription_test,
            setup: [
              exclusive_queues: true,
-             events: ["Ping"],
+             events: ["Ping", "Malicious"],
              commands: ["Echo", "test.Result"],
              handlers: TestHandler,
              app_context: self(),
@@ -72,6 +80,89 @@ defmodule SubscriptionTest do
     assert_receive {"Ping", "hello", "1234"}
   end
 
+  test "handle json event" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.event_exchange(), "Ping", Jason.encode!("hello"),
+        headers: [{"conversation_id", :longstr, "1234"}],
+        content_type: "application/json"
+      )
+
+    assert_receive {"Ping", "hello", "1234"}
+  end
+
+  test "undecodable payload" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.event_exchange(), "Ping", "boom!",
+        headers: [{"conversation_id", :longstr, "1234"}],
+        content_type: "application/json"
+      )
+
+    refute_receive _
+  end
+
+  test "missing conversation_id" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.event_exchange(), "Ping", CBOR.encode("hello"),
+        content_type: "application/cbor",
+        headers: []
+      )
+
+    refute_receive _
+  end
+
+  test "missing headers" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.event_exchange(), "Ping", CBOR.encode("hello"),
+        content_type: "application/cbor"
+      )
+
+    refute_receive _
+  end
+
+  test "crashed handler" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    # Prepare log listener
+    {:ok, %{queue: test_queue}} = AMQP.Queue.declare(chan, "log_queue", exclusive: true)
+    AMQP.Queue.bind(chan, test_queue, Eventail.Logging.exchange(), routing_key: "*.EMERGENCY")
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.event_exchange(), "Malicious", CBOR.encode("hello"),
+        headers: [{"conversation_id", :longstr, "1234"}],
+        content_type: "application/cbor"
+      )
+
+    refute_receive _
+
+    # check
+    # Give time to the logs messages to arrive in the queue
+    Process.sleep(100)
+    {:ok, _payload, _meta} = AMQP.Basic.get(chan, "log_queue")
+  end
+
   test "handle command" do
     # Prepare test simple publish
     {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
@@ -87,6 +178,21 @@ defmodule SubscriptionTest do
       )
 
     assert_receive {"Echo", "hello", "1234", "test.Result", "c1"}
+  end
+
+  test "bad command" do
+    # Prepare test simple publish
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    :ok =
+      AMQP.Basic.publish(chan, Business.command_exchange(), "Echo", CBOR.encode("hello"),
+        headers: [{"conversation_id", :longstr, "1234"}],
+        content_type: "application/cbor"
+      )
+
+    refute_receive _
   end
 
   test "handle result" do
@@ -105,7 +211,11 @@ defmodule SubscriptionTest do
     assert_receive {"test.Result", "hello", "1234", "success", "c1"}
   end
 
-  test "handle_local" do
+  test "handle_local", context do
+    Eventail.publish_local(context.endpoint, :local_test_delay, 10)
+    Eventail.publish_local(context.endpoint, :local_test, 0)
+    assert_receive :local_test
+    assert_receive :local_test_delay
     # Just wait for health check
     assert_receive :health, 1100
   end
@@ -141,6 +251,23 @@ defmodule SubscriptionTest do
     assert_receive {"test.Result", "!oh he", "321", "error", "recon1"}
     Business.return_success(context.endpoint, "test.Result", "!oh he", "321", "recon1", true)
     assert_receive {"test.Result", "!oh he", "321", "success", "recon1"}
+  end
+
+  test "massive send", context do
+    # to trigger multiple acks
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    Process.sleep(100)
+    ptab = Eventail.get_ets(context.endpoint.pid)
+    size = :ets.info(ptab, :size)
+    assert size == 0
   end
 
   defp hosts do

@@ -88,7 +88,7 @@ defmodule Eventail.Logging do
         host: "#{endpoint.logical_service}@#{endpoint.hostname}",
         timestamp: System.system_time(:millisecond) / 1000.0
       }
-      |> Map.put("_levename", criticity_name)
+      |> Map.put("_levelname", criticity_name)
       |> Map.put("_conversation_id", conversation_id)
       |> Map.put("_logical_service", endpoint.logical_service)
       |> Map.put("_worker_pid", inspect(self()))

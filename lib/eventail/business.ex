@@ -132,7 +132,7 @@ defmodule Eventail.Business do
           conversation_id
         )
 
-        AMQP.Basic.reject(channel, tag, requeue: false)
+        AMQP.Basic.ack(channel, tag)
 
       {:ok, payload} ->
         if exchange == @event_exchange do
@@ -195,7 +195,7 @@ defmodule Eventail.Business do
       "none"
     )
 
-    AMQP.Basic.reject(channel, tag, requeue: false)
+    AMQP.Basic.ack(channel, tag)
   end
 
   # For tests
@@ -352,7 +352,7 @@ defmodule Eventail.Business do
           conversation_id
         )
 
-        AMQP.Basic.reject(channel, tag, requeue: false)
+        AMQP.Basic.ack(channel, tag)
     end
   end
 
