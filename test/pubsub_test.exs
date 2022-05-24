@@ -110,6 +110,39 @@ defmodule SubscriptionTest do
     assert_receive :health, 1100
   end
 
+  test "successfully publish event", context do
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321")
+    assert_receive {"Ping", "what's up?", "321"}
+    Business.publish_event(context.endpoint, "Ping", "what's up?", "321", true)
+    assert_receive {"Ping", "what's up?", "321"}
+  end
+
+  test "successfully send command", context do
+    Business.send_command(context.endpoint, "Echo", "eh ho!", "321", "test.Result", "recon1")
+    assert_receive {"Echo", "eh ho!", "321", "test.Result", "recon1"}
+
+    Business.send_command(
+      context.endpoint,
+      "Echo",
+      "eh ho!",
+      "321",
+      "test.Result",
+      "recon1",
+      true
+    )
+
+    assert_receive {"Echo", "eh ho!", "321", "test.Result", "recon1"}
+  end
+
+  test "successfully respond", context do
+    Business.return_success(context.endpoint, "test.Result", "!oh he", "321", "recon1")
+    assert_receive {"test.Result", "!oh he", "321", "success", "recon1"}
+    Business.return_error(context.endpoint, "test.Result", "!oh he", "321", "recon1")
+    assert_receive {"test.Result", "!oh he", "321", "error", "recon1"}
+    Business.return_success(context.endpoint, "test.Result", "!oh he", "321", "recon1", true)
+    assert_receive {"test.Result", "!oh he", "321", "success", "recon1"}
+  end
+
   defp hosts do
     System.get_env("BROKERS", "amqp://localhost") |> String.split(",")
   end

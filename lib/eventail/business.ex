@@ -8,7 +8,82 @@ defmodule Eventail.Business do
   @event_exchange_type :topic
   @cmd_exchange_type :topic
 
+  alias Eventail.Endpoint
   alias Eventail.Logging
+
+  #
+  # Public API
+  #
+
+  @spec publish_event(Endpoint.t(), String.t() | atom(), any(), String.t(), boolean()) :: :ok
+  def publish_event(endpoint, event, message, conversation_id, mandatory \\ false) do
+    headers = [{"conversation_id", :longstr, conversation_id}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor"
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @event_exchange, event, CBOR.encode(message), delivery_conf}
+    )
+  end
+
+  @spec send_command(
+          Endpoint.t(),
+          String.t() | atom(),
+          any(),
+          String.t(),
+          String.t() | atom(),
+          String.t(),
+          boolean()
+        ) :: :ok
+  def send_command(
+        endpoint,
+        event,
+        message,
+        conversation_id,
+        reply_to,
+        correlation_id,
+        mandatory \\ false
+      ) do
+    headers = [{"conversation_id", :longstr, conversation_id}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor",
+      reply_to: reply_to,
+      correlation_id: correlation_id
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @cmd_exchange, event, CBOR.encode(message), delivery_conf}
+    )
+  end
+
+  @spec return_success(
+          Endpoint.t(),
+          String.t() | atom(),
+          any(),
+          String.t(),
+          String.t(),
+          boolean()
+        ) :: :ok
+  def return_success(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
+    return_result(endpoint, "success", dest, message, conversation_id, correlation_id, mandatory)
+  end
+
+  @spec return_error(Endpoint.t(), String.t() | atom(), any(), String.t(), String.t(), boolean()) ::
+          :ok
+  def return_error(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
+    return_result(endpoint, "error", dest, message, conversation_id, correlation_id, mandatory)
+  end
 
   #
   # Internal API
@@ -23,6 +98,7 @@ defmodule Eventail.Business do
         commands: commands
       }) do
     :ok = AMQP.Confirm.select(channel)
+    :ok = AMQP.Confirm.register_handler(channel, self())
     :ok = AMQP.Basic.qos(channel, prefetch_count: prefetch_count)
     :ok = AMQP.Exchange.declare(channel, @event_exchange, @event_exchange_type, durable: true)
     :ok = AMQP.Exchange.declare(channel, @cmd_exchange, @cmd_exchange_type, durable: true)
@@ -278,5 +354,22 @@ defmodule Eventail.Business do
 
         AMQP.Basic.reject(channel, tag, requeue: false)
     end
+  end
+
+  defp return_result(endpoint, status, dest, message, conversation_id, correlation_id, mandatory) do
+    headers = [{"conversation_id", :longstr, conversation_id}, {"status", :longstr, status}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor",
+      correlation_id: correlation_id
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @cmd_exchange, dest, CBOR.encode(message), delivery_conf}
+    )
   end
 end

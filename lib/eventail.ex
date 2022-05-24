@@ -7,14 +7,20 @@ defmodule Eventail do
 
   alias AMQP.Channel
   alias AMQP.Connection
+
   alias Eventail.Business
   alias Eventail.Endpoint
   alias Eventail.Logging
+
   require Logger
   use GenServer
 
+  # in milliseconds
   @reconnect_interval 2_000
+  # In seconds
   @heartbeat 5
+  # in milliseconds
+  @pending_check_interval 5000
 
   #
   # Public API
@@ -120,6 +126,7 @@ defmodule Eventail do
     Process.flag(:trap_exit, true)
     endpoint = %Endpoint{logical_service: logical_service, pid: self(), hostname: get_hostname()}
     send(self(), :connect)
+    Process.send_after(self(), :check_pending, @pending_check_interval)
 
     {:ok,
      %{
@@ -129,23 +136,81 @@ defmodule Eventail do
        log_channel: nil,
        business_channel: nil,
        conf_channel: nil,
+       pending_ack: :ets.new(logical_service, []),
        setup: setup
      }}
   end
 
   @impl GenServer
-  def handle_cast({:log, routing_key, payload}, %{log_channel: log_channel} = state) do
+  def handle_cast({:log, exchange, routing_key, payload}, %{log_channel: log_channel} = state) do
     unless log_channel == nil do
-      Logging.publish(log_channel, routing_key, payload)
+      AMQP.Basic.publish(log_channel, exchange, routing_key, payload)
       # TODO: else
+      # Do we just drop the log as in the python version?
     end
 
     {:noreply, state}
   end
 
   @impl GenServer
+  def handle_cast(
+        {:publish, exchange, routing_key, payload, options} = msg,
+        %{business_channel: channel, pending_ack: pending_ack} = state
+      ) do
+    msg_id = AMQP.Confirm.next_publish_seqno(channel)
+    :ok = AMQP.Basic.publish(channel, exchange, routing_key, payload, options)
+    :ets.insert(pending_ack, {msg_id, System.system_time(:second), msg})
+    {:noreply, state}
+  end
+
+  @impl GenServer
   def handle_call(:get, _, %{endpoint: endpoint} = state) do
     {:reply, endpoint, state}
+  end
+
+  @impl GenServer
+  def handle_info({:basic_ack, seqno, false}, %{pending_ack: pending_ack} = state) do
+    :ets.delete(pending_ack, seqno)
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info({:basic_ack, seqno, true}, %{pending_ack: pending_ack} = state) do
+    :ets.select_delete(pending_ack, :ets.fun2ms(fn {seq, _, _} when seq <= seqno -> seq end))
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info({:basic_nack, seqno, false}, %{pending_ack: pending_ack} = state) do
+    msg = :ets.lookup_element(pending_ack, seqno, 3)
+    :ets.delete(pending_ack, seqno)
+    handle_cast(msg, state)
+  end
+
+  @impl GenServer
+  def handle_info({:basic_nack, seqno, true}, %{pending_ack: pending_ack} = state) do
+    query = :ets.fun2ms(fn {seq, _, msg} when seq <= seqno -> msg end)
+    messages = :ets.select(pending_ack, query)
+    :ets.select_delete(pending_ack, query)
+    resend_messages(messages)
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info(
+        :check_pending,
+        %{pending_ack: pending_ack, business_channel: business_channel} = state
+      ) do
+    unless business_channel == nil do
+      limit = System.system_time(:millisecond) - @pending_check_interval
+      query = :ets.fun2ms(fn {_, stamp, msg} when stamp <= limit -> msg end)
+      messages = :ets.select(pending_ack, query)
+      :ets.select_delete(pending_ack, query)
+      resend_messages(messages)
+    end
+
+    Process.send_after(self(), :check_pending, @pending_check_interval)
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -359,5 +424,14 @@ defmodule Eventail do
       raise "Missing handlers for subscriptions!"
 
     config
+  end
+
+  def resend_messages([]) do
+    :ok
+  end
+
+  def resend_messages([msg | rest]) do
+    GenServer.cast(self(), msg)
+    resend_messages(rest)
   end
 end

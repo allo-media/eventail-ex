@@ -26,7 +26,7 @@ defmodule Eventail.Handlers do
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
   """
-  @callback handle_event(Endpoint.t(), String.t(), term(), String.t(), map()) :: :ok
+  @callback handle_event(Endpoint.t(), String.t(), any(), String.t(), map()) :: :ok
 
   @doc """
   Handle received command.
@@ -45,7 +45,7 @@ defmodule Eventail.Handlers do
   @callback handle_command(
               Endpoint.t(),
               String.t(),
-              term(),
+              any(),
               String.t(),
               String.t(),
               String.t(),
@@ -69,7 +69,7 @@ defmodule Eventail.Handlers do
   @callback handle_result(
               Endpoint.t(),
               String.t(),
-              term(),
+              any(),
               String.t(),
               String.t(),
               String.t(),
