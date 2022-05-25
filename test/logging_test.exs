@@ -9,10 +9,9 @@ defmodule LoggingTest do
         {Eventail,
          [
            hosts: hosts(),
+           logical_service: :log_test_service,
            name: :log_test,
-           exclusive_queues: true,
-           events: [],
-           commands: []
+           setup: [exclusive_queues: true]
          ]},
         restart: :temporary
       )
@@ -22,10 +21,7 @@ defmodule LoggingTest do
 
   test "publish log event", context do
     # Prepare test listener
-    {:ok, conn} =
-      AMQP.Connection.open(
-        hosts() |> List.first()
-      )
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
 
     {:ok, chan} = AMQP.Channel.open(conn)
     {:ok, %{queue: test_queue}} = AMQP.Queue.declare(chan, "test_queue", exclusive: true)
@@ -40,7 +36,7 @@ defmodule LoggingTest do
     # check
     # Give time to the message to arrive in the queue
     Process.sleep(100)
-    {:ok, payload, meta} = AMQP.Basic.get(chan, "test_queue")
+    {:ok, payload, _meta} = AMQP.Basic.get(chan, "test_queue")
     gelf = Jason.decode!(payload)
     assert gelf["short_message"] == "hello"
     assert gelf["full_message"] == "this is a test"
