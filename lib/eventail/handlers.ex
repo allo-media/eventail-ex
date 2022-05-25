@@ -4,11 +4,11 @@ defmodule Eventail.Handlers do
 
   A handler module is registered into an Endpoint when that service is started. See `Eventail.start_link/1`.
 
-  If an handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
+  If a handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
   dead-letter exchange if one is configured.
 
   All the handlers are passed a `context` map containing message context from the EDA.
-  If the enpoint was provided application context, it will be
+  If the endpoint was provided application context, it will be
   injected into the context under the `app_context` key.
   """
 

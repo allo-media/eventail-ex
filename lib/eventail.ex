@@ -29,7 +29,7 @@ defmodule Eventail do
   @type config :: [option]
 
   @typedoc """
-  Options values for Enpoint configuration.
+  Options values for Endpoint configuration.
 
   * `:exclusive_queues`: use private, non-durable queues (default to `false`)
   * `:prefetch_count`: tells RabbitMQ how many events pending acknowledgment to push (default to `10`).
