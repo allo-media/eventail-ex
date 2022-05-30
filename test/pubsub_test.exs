@@ -269,6 +269,100 @@ defmodule SubscriptionTest do
     assert size == 0
   end
 
+  test "single publisher nack" do
+    pending = :ets.new(:test_table, [:public])
+
+    :ets.insert(
+      pending,
+      {1, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg1", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {2, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg2", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {3, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg3", []}}
+    )
+
+    query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 1}], [:"$2"]}]
+    msgs = :ets.select(pending, query)
+    assert length(msgs) == 2
+    Eventail.handle_info({:basic_nack, 2, false}, %{pending_ack: pending, business_channel: nil})
+    msgs2 = :ets.select(pending, query)
+    assert length(msgs2) == 1
+    msgs3 = :ets.select(pending, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", 2}], [:"$2"]}])
+    assert length(msgs3) == 2
+  end
+
+  test "multiple publisher nack" do
+    pending = :ets.new(:test_table, [:public])
+
+    :ets.insert(
+      pending,
+      {1, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg1", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {2, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg2", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {3, System.system_time(:second),
+       {:publish, Business.event_exchange(), "Tested", "mesg3", []}}
+    )
+
+    query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
+    msgs = :ets.select(pending, query)
+    assert length(msgs) == 3
+    Eventail.handle_info({:basic_nack, 2, true}, %{pending_ack: pending, business_channel: nil})
+    msgs2 = :ets.select(pending, query)
+    assert length(msgs2) == 1
+    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}
+    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg2", []}}
+  end
+
+  test "pending ack collector" do
+    pending = :ets.new(:test_table, [:public])
+
+    :ets.insert(
+      pending,
+      {1, System.system_time(:second) - 10,
+       {:publish, Business.event_exchange(), "Tested", "mesg1", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {2, System.system_time(:second) - 9,
+       {:publish, Business.event_exchange(), "Tested", "mesg2", []}}
+    )
+
+    :ets.insert(
+      pending,
+      {3, System.system_time(:second) - 8,
+       {:publish, Business.event_exchange(), "Tested", "mesg3", []}}
+    )
+
+    query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
+    msgs = :ets.select(pending, query)
+    assert length(msgs) == 3
+    Eventail.handle_info(:check_pending, %{pending_ack: pending, business_channel: 123})
+    msgs2 = :ets.select(pending, query)
+    assert Enum.empty?(msgs2)
+    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}
+    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg2", []}}
+    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg3", []}}
+  end
+
   defp hosts do
     System.get_env("BROKERS", "amqp://localhost") |> String.split(",")
   end

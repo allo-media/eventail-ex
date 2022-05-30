@@ -19,8 +19,10 @@ defmodule Eventail do
   @reconnect_interval 2_000
   # In seconds
   @heartbeat 5
+  # in seconds
+  @pending_check_interval 5
   # in milliseconds
-  @pending_check_interval 5000
+  @pending_check_interval_ms @pending_check_interval * 1000
 
   #
   # Public API
@@ -135,7 +137,7 @@ defmodule Eventail do
     Process.flag(:trap_exit, true)
     endpoint = %Endpoint{logical_service: logical_service, pid: self(), hostname: get_hostname()}
     send(self(), :connect)
-    Process.send_after(self(), :check_pending, @pending_check_interval)
+    Process.send_after(self(), :check_pending, @pending_check_interval_ms)
 
     {:ok,
      %{
@@ -166,8 +168,16 @@ defmodule Eventail do
         {:publish, exchange, routing_key, payload, options} = msg,
         %{business_channel: channel, pending_ack: pending_ack} = state
       ) do
-    msg_id = AMQP.Confirm.next_publish_seqno(channel)
-    :ok = AMQP.Basic.publish(channel, exchange, routing_key, payload, options)
+    msg_id =
+      if channel != nil do
+        msg_id = AMQP.Confirm.next_publish_seqno(channel)
+        :ok = AMQP.Basic.publish(channel, exchange, routing_key, payload, options)
+        msg_id
+      else
+        # Risk of collision is low
+        System.monotonic_time(:millisecond)
+      end
+
     :ets.insert(pending_ack, {msg_id, System.system_time(:second), msg})
     {:noreply, state}
   end
@@ -184,22 +194,19 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info({:basic_ack, seqno, false}, %{pending_ack: pending_ack} = state) do
-    d = :ets.delete(pending_ack, seqno)
-    Logger.debug("ACK #{seqno}, rm #{d}")
+    :ets.delete(pending_ack, seqno)
     {:noreply, state}
   end
 
   @impl GenServer
   def handle_info({:basic_ack, seqno, true}, %{pending_ack: pending_ack} = state) do
     # select true from ets where msgid <= seqno
-    d = :ets.select_delete(pending_ack, [{{:"$1", :_, :_}, [{:"=<", :"$1", seqno}], [true]}])
-    Logger.debug("ACK multiple #{seqno}, rm #{d}")
+    :ets.select_delete(pending_ack, [{{:"$1", :_, :_}, [{:"=<", :"$1", seqno}], [true]}])
     {:noreply, state}
   end
 
   @impl GenServer
   def handle_info({:basic_nack, seqno, false}, %{pending_ack: pending_ack} = state) do
-    Logger.debug("NACK #{seqno}")
     msg = :ets.lookup_element(pending_ack, seqno, 3)
     :ets.delete(pending_ack, seqno)
     handle_cast(msg, state)
@@ -207,7 +214,6 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info({:basic_nack, seqno, true}, %{pending_ack: pending_ack} = state) do
-    Logger.debug("NACK multiple #{seqno}")
     # select msg from ets where msgid <= seqno
     messages = :ets.select(pending_ack, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [:"$2"]}])
     :ets.select_delete(pending_ack, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [true]}])
@@ -221,15 +227,16 @@ defmodule Eventail do
         %{pending_ack: pending_ack, business_channel: business_channel} = state
       ) do
     unless business_channel == nil do
-      limit = System.system_time(:millisecond) - @pending_check_interval
+      limit = System.system_time(:second) - @pending_check_interval
       # select msg from ets where stamp <= limit
-      query = [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [:"$2"]}]
-      messages = :ets.select(pending_ack, query)
-      :ets.select_delete(pending_ack, query)
+      messages =
+        :ets.select(pending_ack, [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [:"$2"]}])
+
+      :ets.select_delete(pending_ack, [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [true]}])
       resend_messages(messages)
     end
 
-    Process.send_after(self(), :check_pending, @pending_check_interval)
+    Process.send_after(self(), :check_pending, @pending_check_interval_ms)
     {:noreply, state}
   end
 

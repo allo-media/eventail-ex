@@ -96,7 +96,6 @@ defmodule Eventail.Business do
     )
   end
 
-
   @doc """
   Send the successful result of a command to the requesting service.
 
@@ -122,7 +121,6 @@ defmodule Eventail.Business do
   def return_success(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
     return_result(endpoint, "success", dest, message, conversation_id, correlation_id, mandatory)
   end
-
 
   @doc """
   Send the error result of a command to the requesting service.
