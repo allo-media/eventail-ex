@@ -19,13 +19,13 @@ defmodule Eventail.Business do
   Publish an event on the EDA.
 
   The parameters are:
-  * `endpoint`: the descriptor of the endpoint through which the event is to be sent
-  * `event`: the event name
-  * `message`: the event message, that can be any serializable term, generaly a map or keyword list
-  * `conversation_id`: The unique id of the "event thread" this event participates in. If this event
-  reacts to a previous event, it should repeat the same `conversation_id`
-  * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
-  sent event (for debug purposes)
+    * `endpoint`: the descriptor of the endpoint through which the event is to be sent
+    * `event`: the event name
+    * `message`: the event message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this event participates in. If this event
+    reacts to a previous event, it should repeat the same `conversation_id`
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent event (for debug purposes)
   """
   @spec publish_event(Endpoint.t(), String.t() | atom(), any(), String.t(), boolean()) :: :ok
   def publish_event(endpoint, event, message, conversation_id, mandatory \\ false) do
@@ -44,6 +44,23 @@ defmodule Eventail.Business do
     )
   end
 
+  @doc """
+  Send a command to a service on the EDA.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the command is to be sent
+    * `command`: the command name
+    * `message`: the command message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this command participates in. If this command
+    reacts to a previous command, result or event, it should repeat the same `conversation_id`
+    * `reply_to`: the return address where to send the response (result)
+    * `correlation_id`: whatever application dependent reference string that should be attached to the result.
+      As the response (result) is received asynchronously later, the `correlation_id` is used to reconcile it
+      with the original command
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent command (for debug purposes)
+
+  """
   @spec send_command(
           Endpoint.t(),
           String.t() | atom(),
@@ -55,7 +72,7 @@ defmodule Eventail.Business do
         ) :: :ok
   def send_command(
         endpoint,
-        event,
+        command,
         message,
         conversation_id,
         reply_to,
@@ -75,10 +92,25 @@ defmodule Eventail.Business do
 
     GenServer.cast(
       endpoint.pid,
-      {:publish, @cmd_exchange, event, CBOR.encode(message), delivery_conf}
+      {:publish, @cmd_exchange, command, CBOR.encode(message), delivery_conf}
     )
   end
 
+
+  @doc """
+  Send the successful result of a command to the requesting service.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `dest`: should be equal to the `reply_to` of the command this result responds to
+    * `message`: the result message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this result participates in.
+       It should be the same `conversation_id` as the command this result responds to
+    * `correlation_id`: the `correlation_id` of the original command, unchanged
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent result (for debug purposes)
+
+  """
   @spec return_success(
           Endpoint.t(),
           String.t() | atom(),
@@ -91,6 +123,21 @@ defmodule Eventail.Business do
     return_result(endpoint, "success", dest, message, conversation_id, correlation_id, mandatory)
   end
 
+
+  @doc """
+  Send the error result of a command to the requesting service.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `dest`: should be equal to the `reply_to` of the command this result responds to
+    * `message`: the result message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this result participates in.
+       It should be the same `conversation_id` as the command this result responds to
+    * `correlation_id`: the `correlation_id` of the original command, unchanged
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent result (for debug purposes)
+
+  """
   @spec return_error(Endpoint.t(), String.t() | atom(), any(), String.t(), String.t(), boolean()) ::
           :ok
   def return_error(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
