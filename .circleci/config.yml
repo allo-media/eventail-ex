@@ -84,7 +84,7 @@ jobs:
 
       - run:
           name: "Run tests"
-          command: mix test  --cover
+          command: mix test --cover
 
       - store_test_results:
           path: _build/test/lib/eventail-rs
