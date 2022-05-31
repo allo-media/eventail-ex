@@ -2,6 +2,7 @@ defmodule Eventail.Config do
   @moduledoc """
   EDA Configuration API
   """
+  require Logger
 
   alias Eventail.Endpoint
   alias Eventail.Utils
@@ -41,6 +42,7 @@ defmodule Eventail.Config do
       )
 
     Utils.bind(channel, config_q, exchange, setup.configurations)
+    Logger.info("Expecting configuration events #{inspect(setup.configurations)}")
     {:ok, _} = AMQP.Basic.consume(channel, config_q)
     :ok
   end

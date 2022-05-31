@@ -8,7 +8,11 @@ defmodule Eventail.MixProject do
       elixir: "~> 1.13",
       test_coverage: [summary: [threshold: 80]],
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      docs: [
+        main: "readme",
+        extras: ["README.md"]
+      ]
     ]
   end
 

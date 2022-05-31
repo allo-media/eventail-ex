@@ -99,7 +99,7 @@ defmodule Eventail.Logging do
       end)
 
     routing_key = "#{endpoint.logical_service}.#{criticity_name}"
-    Logger.debug("Application logged on EDA: #{inspect(ex_gelf)}")
+    Logger.debug("Application #{inspect(endpoint)} logged on EDA: #{inspect(ex_gelf)}")
 
     # Privacy in Elixir does not extend to submodules (there is no such concept as submodule anyway).
     # So, we cast directly instead of using a function of `Eventail` that would have to be made public.
