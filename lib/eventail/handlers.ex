@@ -4,11 +4,11 @@ defmodule Eventail.Handlers do
 
   A handler module is registered into an Endpoint when that service is started. See `Eventail.start_link/1`.
 
-  If an handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
+  If a handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
   dead-letter exchange if one is configured.
 
   All the handlers are passed a `context` map containing message context from the EDA.
-  If the enpoint was provided application context, it will be
+  If the endpoint was provided application context, it will be
   injected into the context under the `app_context` key.
   """
 
@@ -26,7 +26,13 @@ defmodule Eventail.Handlers do
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
   """
-  @callback handle_event(Endpoint.t(), String.t(), term(), String.t(), map()) :: :ok
+  @callback handle_event(
+              endpoint :: Endpoint.t(),
+              event :: String.t(),
+              payload :: any(),
+              conversation_id :: String.t(),
+              context :: map()
+            ) :: :ok
 
   @doc """
   Handle received command.
@@ -43,13 +49,13 @@ defmodule Eventail.Handlers do
     (like the `timestamp` that indicates when the event entered the bus)
   """
   @callback handle_command(
-              Endpoint.t(),
-              String.t(),
-              term(),
-              String.t(),
-              String.t(),
-              String.t(),
-              map()
+              endpoint :: Endpoint.t(),
+              command :: String.t(),
+              payload :: any(),
+              conversation_id :: String.t(),
+              reply_to :: String.t(),
+              correlation_id :: String.t(),
+              context :: map()
             ) :: :ok
 
   @doc """
@@ -67,13 +73,13 @@ defmodule Eventail.Handlers do
     (like the `timestamp` that indicates when the event entered the bus)
   """
   @callback handle_result(
-              Endpoint.t(),
-              String.t(),
-              term(),
-              String.t(),
-              String.t(),
-              String.t(),
-              map()
+              endpoint :: Endpoint.t(),
+              key :: String.t(),
+              payload :: any(),
+              conversation_id :: String.t(),
+              status :: String.t(),
+              correlation_id :: String.t(),
+              context :: map()
             ) :: :ok
 
   @doc """
@@ -111,5 +117,5 @@ defmodule Eventail.Handlers do
 
   See also `Eventail.publish_local/3`.
   """
-  @callback handle_local(Endpoint.t(), any(), map()) :: :ok
+  @callback handle_local(endpoint :: Endpoint.t(), event :: any(), context :: map()) :: :ok
 end

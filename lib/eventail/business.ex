@@ -8,7 +8,139 @@ defmodule Eventail.Business do
   @event_exchange_type :topic
   @cmd_exchange_type :topic
 
+  alias Eventail.Endpoint
   alias Eventail.Logging
+
+  #
+  # Public API
+  #
+
+  @doc """
+  Publish an event on the EDA.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the event is to be sent
+    * `event`: the event name
+    * `message`: the event message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this event participates in. If this event
+    reacts to a previous event, it should repeat the same `conversation_id`
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent event (for debug purposes)
+  """
+  @spec publish_event(Endpoint.t(), String.t() | atom(), any(), String.t(), boolean()) :: :ok
+  def publish_event(endpoint, event, message, conversation_id, mandatory \\ false) do
+    headers = [{"conversation_id", :longstr, conversation_id}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor"
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @event_exchange, event, CBOR.encode(message), delivery_conf}
+    )
+  end
+
+  @doc """
+  Send a command to a service on the EDA.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the command is to be sent
+    * `command`: the command name
+    * `message`: the command message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this command participates in. If this command
+    reacts to a previous command, result or event, it should repeat the same `conversation_id`
+    * `reply_to`: the return address where to send the response (result)
+    * `correlation_id`: whatever application dependent reference string that should be attached to the result.
+      As the response (result) is received asynchronously later, the `correlation_id` is used to reconcile it
+      with the original command
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent command (for debug purposes)
+
+  """
+  @spec send_command(
+          Endpoint.t(),
+          String.t() | atom(),
+          any(),
+          String.t(),
+          String.t() | atom(),
+          String.t(),
+          boolean()
+        ) :: :ok
+  def send_command(
+        endpoint,
+        command,
+        message,
+        conversation_id,
+        reply_to,
+        correlation_id,
+        mandatory \\ false
+      ) do
+    headers = [{"conversation_id", :longstr, conversation_id}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor",
+      reply_to: reply_to,
+      correlation_id: correlation_id
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @cmd_exchange, command, CBOR.encode(message), delivery_conf}
+    )
+  end
+
+  @doc """
+  Send the successful result of a command to the requesting service.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `dest`: should be equal to the `reply_to` of the command this result responds to
+    * `message`: the result message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this result participates in.
+       It should be the same `conversation_id` as the command this result responds to
+    * `correlation_id`: the `correlation_id` of the original command, unchanged
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent result (for debug purposes)
+
+  """
+  @spec return_success(
+          Endpoint.t(),
+          String.t() | atom(),
+          any(),
+          String.t(),
+          String.t(),
+          boolean()
+        ) :: :ok
+  def return_success(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
+    return_result(endpoint, "success", dest, message, conversation_id, correlation_id, mandatory)
+  end
+
+  @doc """
+  Send the error result of a command to the requesting service.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `dest`: should be equal to the `reply_to` of the command this result responds to
+    * `message`: the result message, that can be any serializable term, generally a map or keyword list
+    * `conversation_id`: The unique id of the "message thread" this result participates in.
+       It should be the same `conversation_id` as the command this result responds to
+    * `correlation_id`: the `correlation_id` of the original command, unchanged
+    * `mandatory`: if this flag is set, the endpoint will crash if there are no subscriptions for the
+    sent result (for debug purposes)
+
+  """
+  @spec return_error(Endpoint.t(), String.t() | atom(), any(), String.t(), String.t(), boolean()) ::
+          :ok
+  def return_error(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
+    return_result(endpoint, "error", dest, message, conversation_id, correlation_id, mandatory)
+  end
 
   #
   # Internal API
@@ -23,6 +155,7 @@ defmodule Eventail.Business do
         commands: commands
       }) do
     :ok = AMQP.Confirm.select(channel)
+    :ok = AMQP.Confirm.register_handler(channel, self())
     :ok = AMQP.Basic.qos(channel, prefetch_count: prefetch_count)
     :ok = AMQP.Exchange.declare(channel, @event_exchange, @event_exchange_type, durable: true)
     :ok = AMQP.Exchange.declare(channel, @cmd_exchange, @cmd_exchange_type, durable: true)
@@ -56,7 +189,7 @@ defmodule Eventail.Business do
           conversation_id
         )
 
-        AMQP.Basic.reject(channel, tag, requeue: false)
+        AMQP.Basic.ack(channel, tag)
 
       {:ok, payload} ->
         if exchange == @event_exchange do
@@ -119,15 +252,17 @@ defmodule Eventail.Business do
       "none"
     )
 
-    AMQP.Basic.reject(channel, tag, requeue: false)
+    AMQP.Basic.ack(channel, tag)
   end
 
   # For tests
+  @doc false
   def event_exchange do
     @event_exchange
   end
 
   # For tests
+  @doc false
   def command_exchange do
     @cmd_exchange
   end
@@ -276,7 +411,24 @@ defmodule Eventail.Business do
           conversation_id
         )
 
-        AMQP.Basic.reject(channel, tag, requeue: false)
+        AMQP.Basic.ack(channel, tag)
     end
+  end
+
+  defp return_result(endpoint, status, dest, message, conversation_id, correlation_id, mandatory) do
+    headers = [{"conversation_id", :longstr, conversation_id}, {"status", :longstr, status}]
+
+    delivery_conf = [
+      mandatory: mandatory,
+      headers: headers,
+      persistent: true,
+      content_type: "application/cbor",
+      correlation_id: correlation_id
+    ]
+
+    GenServer.cast(
+      endpoint.pid,
+      {:publish, @cmd_exchange, dest, CBOR.encode(message), delivery_conf}
+    )
   end
 end

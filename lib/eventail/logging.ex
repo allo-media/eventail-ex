@@ -61,12 +61,6 @@ defmodule Eventail.Logging do
     :ok = AMQP.Exchange.declare(channel, @exchange, @exchange_type, durable: true)
   end
 
-  @doc false
-  @spec publish(AMQP.Channel.t(), String.t(), binary()) :: :ok | :error
-  def publish(channel, routing_key, payload) do
-    AMQP.Basic.publish(channel, @exchange, routing_key, payload)
-  end
-
   # For tests
   def exchange do
     @exchange
@@ -94,7 +88,7 @@ defmodule Eventail.Logging do
         host: "#{endpoint.logical_service}@#{endpoint.hostname}",
         timestamp: System.system_time(:millisecond) / 1000.0
       }
-      |> Map.put("_levename", criticity_name)
+      |> Map.put("_levelname", criticity_name)
       |> Map.put("_conversation_id", conversation_id)
       |> Map.put("_logical_service", endpoint.logical_service)
       |> Map.put("_worker_pid", inspect(self()))
@@ -109,6 +103,6 @@ defmodule Eventail.Logging do
 
     # Privacy in Elixir does not extend to submodules (there is no such concept as submodule anyway).
     # So, we cast directly instead of using a function of `Eventail` that would have to be made public.
-    GenServer.cast(endpoint.pid, {:log, routing_key, Jason.encode!(ex_gelf)})
+    GenServer.cast(endpoint.pid, {:log, @exchange, routing_key, Jason.encode!(ex_gelf)})
   end
 end
