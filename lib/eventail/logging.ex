@@ -61,7 +61,7 @@ defmodule Eventail.Logging do
     :ok = AMQP.Exchange.declare(channel, @exchange, @exchange_type, durable: true)
   end
 
-  # For tests
+  @doc false
   def exchange do
     @exchange
   end

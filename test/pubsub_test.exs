@@ -40,6 +40,10 @@ defmodule SubscriptionTest do
     def handle_local(_, local_event, %{app_context: test_pid}) do
       send(test_pid, local_event)
     end
+
+    def handle_config(_, _, _, _) do
+      :ok
+    end
   end
 
   setup do
