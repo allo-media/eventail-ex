@@ -16,7 +16,7 @@ defmodule Eventail.Handlers do
   The application context can be modified by configuration handlers only.
 
   On startup, if configuration subscriptions are defined, the endpoint only subscribes to the configuration bus,
-  and it emits the local `:waiting_for_conf` event. The application can then react by publishing one or more
+  and it emits the local `:waiting_for_config` event. The application can then react by publishing one or more
   requests for configuration on the configuration bus. Once the configuration data are received, the configuration
   handlers can tell the endpoint to fully subscribe to the other buses by returning a special value.
   The endpoint then finishes joining the EDA and emits the local event `:ready` when it has done so.
