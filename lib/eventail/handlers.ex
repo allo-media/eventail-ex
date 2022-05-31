@@ -108,7 +108,7 @@ defmodule Eventail.Handlers do
     it only contains the application context under the key `:app_context`.
 
   Eventail events are:
-    - `:waiting_for_conf`: when configuration subscriptions are defined and the endpoint has joined the
+    - `:waiting_for_config`: when configuration subscriptions are defined and the endpoint has joined the
       configuration bus
     - `:ready`: when the endpoint is connected and ready to sent/receive events on the EDA.
 
