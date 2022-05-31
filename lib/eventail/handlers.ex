@@ -145,7 +145,7 @@ defmodule Eventail.Handlers do
   The callback must return either:
     - `{:ok, new_app_context}`: updates the application context (not the whole context! so there is no `app_context` key in there).
       If the endpoint is not ready yet (it has just started), tell it proceed to full operation (in particular, start to receive business events).
-    - `{:wait, new_app_context}`: updates the application context too, but if the enpoint is not ready yet, tell it to wait for more configuration.
+    - `{:wait, new_app_context}`: updates the application context too, but if the endpoint is not ready yet, tell it to wait for more configuration.
   """
   @callback handle_config(
               endpoint :: Endpoint.t(),
