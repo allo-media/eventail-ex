@@ -4,12 +4,23 @@ defmodule Eventail.Handlers do
 
   A handler module is registered into an Endpoint when that service is started. See `Eventail.start_link/1`.
 
-  If a handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
+  If a business (event or command) handler crashes, the message will be requeued or, if already requeued once, it will be sent to the
   dead-letter exchange if one is configured.
+
+  If a configuration handler crashes, the endpoint crashes.
 
   All the handlers are passed a `context` map containing message context from the EDA.
   If the endpoint was provided application context, it will be
   injected into the context under the `app_context` key.
+
+  The application context can be modified by configuration handlers only.
+
+  On startup, if configuration subscriptions are defined, the endpoint only subscribes to the configuration bus,
+  and it emits the local `:waiting_for_conf` event. The application can then react by publishing one or more
+  requests for configuration on the configuration bus. Once the configuration data are received, the configuration
+  handlers can tell the endpoint to fully subscribe to the other buses by returning a special value.
+  The endpoint then finishes joining the EDA and emits the local event `:ready` when it has done so.
+  See `c:handle_config/4`.
   """
 
   alias Eventail.Endpoint
@@ -97,7 +108,9 @@ defmodule Eventail.Handlers do
     it only contains the application context under the key `:app_context`.
 
   Eventail events are:
-    - `:ready` when the endpoint is connected and ready to sent/receive events on the EDA.
+    - `:waiting_for_conf`: when configuration subscriptions are defined and the endpoint has joined the
+      configuration bus
+    - `:ready`: when the endpoint is connected and ready to sent/receive events on the EDA.
 
 
   To implement a periodic health check (say, every minute), you could do something like
@@ -118,4 +131,26 @@ defmodule Eventail.Handlers do
   See also `Eventail.publish_local/3`.
   """
   @callback handle_local(endpoint :: Endpoint.t(), event :: any(), context :: map()) :: :ok
+
+  @doc """
+  Handle configuration events.
+
+  This callback is called with the following positional arguments:
+    - `endpoint`: the descriptor of the endpoint that received the event.
+    - `config`: the config event name (routing key)
+    - `payload`: the configuration payload as a term
+    - `context`:  a map of additional headers and properties relevant to the EDA
+    (in particular, the application context is under the `app_context` key).
+
+  The callback must return either:
+    - `{:ok, new_app_context}`: updates the application context (not the whole context! so there is no `app_context` key in there).
+      If the endpoint is not ready yet (it has just started), tell it proceed to full operation (in particular, start to receive business events).
+    - `{:wait, new_app_context}`: updates the application context too, but if the enpoint is not ready yet, tell it to wait for more configuration.
+  """
+  @callback handle_config(
+              endpoint :: Endpoint.t(),
+              config :: String.t(),
+              payload :: any(),
+              context :: map
+            ) :: {:wait, map()} | {:ok, map()}
 end

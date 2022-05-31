@@ -10,6 +10,7 @@ defmodule Eventail.Business do
 
   alias Eventail.Endpoint
   alias Eventail.Logging
+  alias Eventail.Utils
 
   #
   # Public API
@@ -180,7 +181,7 @@ defmodule Eventail.Business do
         } = context,
         handlers
       ) do
-    case decode_body(body, content_type) do
+    case Utils.decode_body(body, content_type) do
       {:error, msg} ->
         Logging.emergency(
           endpoint,
@@ -285,7 +286,7 @@ defmodule Eventail.Business do
         durable: not exclusive_queues
       )
 
-    bind(channel, event_q, @event_exchange, events)
+    Utils.bind(channel, event_q, @event_exchange, events)
     {:ok, _} = AMQP.Basic.consume(channel, event_q)
   end
 
@@ -307,28 +308,8 @@ defmodule Eventail.Business do
         durable: not exclusive_queues
       )
 
-    bind(channel, cmd_q, @cmd_exchange, commands)
+    Utils.bind(channel, cmd_q, @cmd_exchange, commands)
     {:ok, _} = AMQP.Basic.consume(channel, cmd_q)
-  end
-
-  defp bind(_, _, _, []) do
-    :ok
-  end
-
-  defp bind(channel, queue, exchange, [key | rest]) do
-    :ok = AMQP.Queue.bind(channel, queue, exchange, routing_key: key)
-    bind(channel, queue, exchange, rest)
-  end
-
-  defp decode_body(body, "application/cbor") do
-    case CBOR.decode(body) do
-      {:ok, payload, _rest} -> {:ok, payload}
-      err -> err
-    end
-  end
-
-  defp decode_body(body, _) do
-    Jason.decode(body)
   end
 
   @spec handle_event(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::

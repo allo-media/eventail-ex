@@ -9,12 +9,16 @@ defmodule Eventail do
   alias AMQP.Connection
 
   alias Eventail.Business
+  alias Eventail.Config
   alias Eventail.Endpoint
   alias Eventail.Logging
 
   require Logger
   use GenServer
 
+  # Configurations are special, the endpoint needs to be able to identify their origin,
+  # so the the endpoint sets the configuration exchange name.
+  @config_exchange "configurations"
   # in milliseconds
   @reconnect_interval 2_000
   # In seconds
@@ -34,15 +38,16 @@ defmodule Eventail do
   Options values for Endpoint configuration.
 
   * `:exclusive_queues`: use private, non-durable queues (default to `false`)
-  * `:prefetch_count`: tells RabbitMQ how many events pending acknowledgment to push (default to `10`).
+  * `:prefetch_count`: tells RabbitMQ how many business events (events and commands) pending acknowledgment to push (default to `10`).
      If the concurrent message processing option is set, that value is the maximum number of messages
      handled concurrently.
-  * `:concurrent_handlers`: if set, the incoming messages will be processed concurrently, each in its own task (defaults to false).
+  * `:concurrent_handlers`: if set, the incoming messages (except configuration messages) will be processed concurrently, each in its own task (defaults to false).
      Don't set this option if you must process the incoming messages in order!
      If message order is not important, concurrency is only useful if your handlers do a lot of work or I/O (
      for example, they query databases or REST APIs).
   * `:events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
   * `:commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
+  * `:configurations`: list of the configuration names (routing keys) to subscribe to (defaults to `[]`)
   * `:handlers`: A module implementing the `Eventail.Handlers` behavior (defaults to `nil`)
   * `app_context`: Application specific context that will be passed as is to the handlers (defaults to `nil`).
   """
@@ -52,6 +57,7 @@ defmodule Eventail do
           | {:concurrent_handlers, boolean()}
           | {:events, list(String.t())}
           | {:commands, list(String.t())}
+          | {:configurations, list(String.t())}
           | {:handlers, module() | nil}
           | {:app_context, term()}
 
@@ -156,8 +162,18 @@ defmodule Eventail do
   def handle_cast({:log, exchange, routing_key, payload}, %{log_channel: log_channel} = state) do
     unless log_channel == nil do
       AMQP.Basic.publish(log_channel, exchange, routing_key, payload)
-      # TODO: else
-      # Do we just drop the log as in the python version?
+    end
+
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast(
+        {:emit_config, routing_key, payload, options},
+        %{conf_channel: conf_channel} = state
+      ) do
+    unless conf_channel == nil do
+      AMQP.Basic.publish(conf_channel, @config_exchange, routing_key, payload, options)
     end
 
     {:noreply, state}
@@ -263,12 +279,21 @@ defmodule Eventail do
         # Get notifications when the connection goes down
         Logger.info("Connected to broker!")
         Process.monitor(conn.pid)
-        {:ok, business_channel} = Channel.open(conn)
-        Business.setup(business_channel, endpoint.logical_service, setup)
         {:ok, log_channel} = Channel.open(conn)
         Logging.setup(log_channel)
         {:ok, conf_channel} = Channel.open(conn)
-        send(self(), {:local, :ready})
+        Config.setup(conf_channel, @config_exchange, setup)
+
+        business_channel =
+          if Enum.empty?(setup.configurations) do
+            {:ok, business_channel} = Channel.open(conn)
+            Business.setup(business_channel, endpoint.logical_service, setup)
+            send(self(), {:local, :ready})
+            business_channel
+          else
+            send(self(), {:local, :waiting_for_config})
+            nil
+          end
 
         {:noreply,
          %{
@@ -322,6 +347,56 @@ defmodule Eventail do
   @impl GenServer
   def handle_info({:basic_cancel_ok, %{consumer_tag: _consumer_tag}}, state) do
     {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info(
+        {:basic_deliver, body, %{exchange: @config_exchange} = context},
+        %{
+          endpoint: endpoint,
+          business_channel: nil,
+          conf_channel: conf_channel,
+          connection: conn,
+          setup: setup
+        } = state
+      ) do
+    # must be a configuration message during startup
+    case Config.handle_message(
+           endpoint,
+           conf_channel,
+           body,
+           context |> Map.put(:app_context, setup.app_context),
+           setup.handlers
+         ) do
+      {:ok, app_context} ->
+        {:ok, business_channel} = Channel.open(conn)
+        Business.setup(business_channel, endpoint.logical_service, setup)
+        send(self(), {:local, :ready})
+
+        {:noreply,
+         %{state | business_channel: business_channel, setup: %{setup | app_context: app_context}}}
+
+      {:wait, app_context} ->
+        {:noreply, %{state | setup: %{setup | app_context: app_context}}}
+    end
+  end
+
+  @impl GenServer
+  def handle_info(
+        {:basic_deliver, body, %{exchange: @config_exchange} = context},
+        %{endpoint: endpoint, conf_channel: conf_channel, setup: setup} = state
+      ) do
+    # Configuration message during normal operations
+    {_, app_context} =
+      Config.handle_message(
+        endpoint,
+        conf_channel,
+        body,
+        context |> Map.put(:app_context, setup.app_context),
+        setup.handlers
+      )
+
+    {:noreply, %{state | setup: %{setup | app_context: app_context}}}
   end
 
   @impl GenServer
@@ -395,10 +470,21 @@ defmodule Eventail do
       "Endpoint #{endpoint.logical_service} shutting down for reason #{inspect(reason)}"
     )
 
-    Channel.close(business_channel)
-    Channel.close(log_channel)
-    Channel.close(conf_channel)
-    Connection.close(conn)
+    unless business_channel == nil do
+      Channel.close(business_channel)
+    end
+
+    unless log_channel == nil do
+      Channel.close(log_channel)
+    end
+
+    unless conf_channel == nil do
+      Channel.close(conf_channel)
+    end
+
+    unless conn == nil do
+      Connection.close(conn)
+    end
   end
 
   #
@@ -437,6 +523,7 @@ defmodule Eventail do
       concurrent_handlers: false,
       events: [],
       commands: [],
+      configurations: [],
       handlers: nil,
       app_context: nil
     }

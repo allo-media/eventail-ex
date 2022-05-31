@@ -20,6 +20,10 @@ defmodule TopologyTest do
     def handle_local(_arg0, _any, _map) do
       :ok
     end
+
+    def handle_config(_, _, _, _) do
+      :ok
+    end
   end
 
   test "start events only" do
