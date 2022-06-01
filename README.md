@@ -97,7 +97,7 @@ As you see, every handler takes an endpoint descriptor as input, as do all Event
 
 For more fun, we'll need another service to send the echo commands and receive the results:
 
-```
+```elixir
 defmodule Ping do
   @behaviour Eventail.Handlers
 
@@ -185,6 +185,14 @@ iex(7)>
 nil
 ```
 
+
+See also:
+  * `t:Eventail.config/0`
+  * `Eventail.start_link/1`
+  * `Eventail.get_endpoint/1`
+  * `Eventail.publish_local/3`
+
+
 ## Supervision
 
 The endpoint process is monitoring the EDA connection and automatically reconnects without crashing, so that
@@ -195,7 +203,7 @@ configuration step.
 
 In a production application, the endpoint should be started under the supervision tree.
 
-```
+```elixir
 defmodule Echo.Application do
   # See https://hexdocs.pm/elixir/Application.html
   # for more information on OTP Applications
@@ -206,17 +214,19 @@ defmodule Echo.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Eventail,
-       [
-         hosts: ["amqp://localhost"],
-         logical_service: :echo,
-         name: :echo_service,
-         setup: [
-           commands: ["echo.EchoMessage"],
-           handlers: Echo
-         ]
-       ]}
-    ]
+      Supervisor.child_spec(
+        {Eventail,
+         [
+           hosts: ["amqp://localhost"],
+           logical_service: :configurator,
+           name: :config_service,
+           setup: [
+             configurations: ["EchoSettingsRequested", "ConfiguratorStarted"],
+             handlers: Configurator
+           ]
+         ]},
+        id: :config_service
+      )
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -241,7 +251,7 @@ until the application receives configuration updates and indicates it is ready t
 
 This is the complete startup sequence:
 
-```
+```plain
 Endpoint                                              Application Handlers
    |                                                            |
 start                                                           |
@@ -250,7 +260,7 @@ join the logging bus                                            |
    |                                                            |
 join the configuration bus                                      |
    |                                                            |
-emit the :waiting_for_config local event      ->          handle_local
+emit the :waiting_for_config local event        ->          handle_local
    |                                                            |
    |                                                        publish one or more configuration requests
    |                                                            |
@@ -263,5 +273,162 @@ receive configuration update                    ->          handle_config
    |                                                            |
 join the business bus                                           |
    |
-emit the :ready local event                   ->          handle_local
+emit the :ready local event                     ->          handle_local
+```
+
+### Example
+
+Let's update our Echo handler so that the string reversing can be configured from the EDA (on/off).
+
+Add this to the `Echo` module:
+
+```elixir
+  def handle_local(endpoint, :waiting_for_config, _context) do
+    # The naming convention is not defined yet.
+    # Should it be `echo.SettingsRequested`, `EchoSettings.needed`…
+    Config.publish(endpoint, "EchoSettingsRequested", %{})
+  end
+
+  def handle_config(endpoint, "EchoSettingsUpdated", %{"reverse" => reverse?}, _) do
+    # or should it be `echo.SettingsUpdated` or `EchoSettings.updated`…
+    # set and start
+    Logging.info(endpoint, "Echo configured", "reverse = #{reverse?}", "conf")
+    {:ok, %{reverse: reverse?}}
+  end
+```
+
+Let's create a configuration server to serve the configuration on the EDA:
+
+```elixir
+defmodule Configurator do
+  @behaviour Eventail.Handlers
+
+  alias Eventail.Config
+
+  def handle_event(_endpoint, _event, _payload, _conversation_id, _context) do
+    # No event subscriptions
+    :ok
+  end
+
+  def handle_command(
+        _endpoint,
+        _cmd,
+        _payload,
+        _conversation_id,
+        _reply_to,
+        _correlation_id,
+        _context
+      ) do
+    :ok
+  end
+
+  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, _context) do
+    # No results expected
+    :ok
+  end
+
+  def handle_local(endpoint, :waiting_for_config, _context) do
+    # The Eventail library is mostly used to develop business services, much less often configuration servers.
+    # So we didn't bloat the library with additional options for the latter.
+    # If your configuration server needs to subscribe to the Business bus too, we use this trick:
+    # we send a configuration request to ourselves.
+    Config.publish(endpoint, "ConfiguratorStarted", %{})
+  end
+
+  def handle_local(_endpoint, _event, _context) do
+    # ignore other local messages
+    :ok
+  end
+
+  def handle_config(_endpoint, "ConfiguratorStarted", _, %{app_context: app_context}) do
+    # Consume our own request to join the business bus
+    {:ok, app_context}
+  end
+
+  def handle_config(endpoint, "EchoSettingsRequested", _, %{app_context: app_context}) do
+    Config.publish(endpoint, "EchoSettingsUpdated", %{reverse: true})
+    {:ok, app_context}
+  end
+end
+```
+
+Let's try! Start the configuration server first.
+
+```
+iex(1)> Eventail.start_link(
+...(1)>            hosts: ["amqp://localhost"],
+...(1)>            logical_service: :configurator,
+...(1)>            name: :config_service,
+...(1)>            setup: [
+...(1)>              configurations: ["EchoSettingsRequested", "ConfiguratorStarted"],
+...(1)>              handlers: Configurator
+...(1)>            ]
+...(1)> )
+{:ok, #PID<0.338.0>}
+iex(2)>
+15:38:39.696 [info]  Connected to broker!
+
+15:38:39.712 [info]  Expecting configuration events ["EchoSettingsRequested", "ConfiguratorStarted"]
+
+nil
+iex(3)> Eventail.start_link(
+...(3)>            hosts: ["amqp://localhost"],
+...(3)>            logical_service: :echo,
+...(3)>            name: :echo_service,
+...(3)>            setup: [
+...(3)>              commands: ["echo.EchoMessage"],
+...(3)>              configurations: ["EchoSettingsUpdated"],
+...(3)>              handlers: Echo
+...(3)>            ]
+...(3)> )
+{:ok, #PID<0.375.0>}
+iex(4)>
+15:39:12.257 [info]  Connected to broker!
+
+15:39:12.273 [info]  Expecting configuration events ["EchoSettingsUpdated"]
+
+15:39:12.293 [debug] Application %Eventail.Endpoint{hostname: "rtxmpro", logical_service: :echo, pid: #PID<0.375.0>}
+logged on EDA: %{:full_message => "reverse = true", :host => "echo@rtxmpro", :level => 6,
+:short_message => "Echo configured", :timestamp => 1654090752.28, :version => "1.1", "_conversation_id" => "conf", "_levelname" => :INFO, "_logical_service" => :echo, "_worker_pid" => "#PID<0.375.0>"}
+
+15:39:12.301 [info]  Service echo subscribed to commands/results ["echo.EchoMessage"]
+
+15:39:12.304 [debug] Application %Eventail.Endpoint{hostname: "rtxmpro", logical_service: :echo, pid: #PID<0.375.0>}
+logged on EDA: %{:full_message => "I'm alive!", :host => "echo@rtxmpro", :level => 5, :short_message => "Echo health check", :timestamp => 1654090752.304, :version => "1.1", "_another_custom_gelf_field" => 123, "_conversation_id" => "7aece4b9-6a17-42f7-b166-5ad359df093e", "_custom_gelf" => "for the fun", "_levelname" => :NOTICE, "_logical_service" => :echo, "_worker_pid" => "#PID<0.400.0>"}
+
+nil
+iex(5)> Eventail.start_link(
+...(5)>   hosts: ["amqp://localhost"],
+...(5)>   logical_service: :ping,
+...(5)>   name: :ping_service,
+...(5)>   setup: [
+...(5)>     commands: ["ping.Result"],
+...(5)>     handlers: Ping
+...(5)>   ])
+{:ok, #PID<0.410.0>}
+iex(6)>
+15:39:57.406 [info]  Connected to broker!
+
+15:39:57.414 [info]  Expecting configuration events []
+
+15:39:57.419 [info]  Service ping subscribed to commands/results ["ping.Result"]
+
+nil
+iex(7)> ping_endpoint = Eventail.get_endpoint(:ping_service)
+%Eventail.Endpoint{
+  hostname: "rtxmpro",
+  logical_service: :ping,
+  pid: #PID<0.410.0>
+}
+iex(8)> Eventail.Business.send_command(
+...(8)>   ping_endpoint, "echo.EchoMessage", %{message: "hello world!"}, UUID.uuid4(), "ping.Result", "corr1")
+:ok
+iex(9)>
+15:40:24.055 [debug] Application %Eventail.Endpoint{hostname: "rtxmpro", logical_service: :echo, pid: #PID<0.375.0>}
+logged on EDA: %{:full_message => "Message to echo = hello world!", :host => "echo@rtxmpro", :level => 6, :short_message => "Received Echo command", :timestamp => 1654090824.055, :version => "1.1", "_conversation_id" => "203e68bf-4aab-4a87-9ba4-3f3ec5276ff5", "_levelname" => :INFO, "_logical_service" => :echo, "_worker_pid" => "#PID<0.375.0>"}
+
+15:40:24.058 [debug] Application %Eventail.Endpoint{hostname: "rtxmpro", logical_service: :ping, pid: #PID<0.410.0>}
+logged on EDA: %{:full_message => "Echo = !dlrow olleh", :host => "ping@rtxmpro", :level => 6, :short_message => "Received echo", :timestamp => 1654090824.057, :version => "1.1", "_conversation_id" => "203e68bf-4aab-4a87-9ba4-3f3ec5276ff5", "_correlation_id" => "corr1", "_levelname" => :INFO, "_logical_service" => :ping, "_worker_pid" => "#PID<0.410.0>"}
+
+nil
 ```

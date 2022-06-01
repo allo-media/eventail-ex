@@ -119,7 +119,7 @@ defmodule Eventail do
   end
 
   @doc """
-  Publisn an event local to the endpoint.
+  Publish an event local to the endpoint.
   Local events don't go on the EDA.
 
   - `endpoint` is the endpoint descriptor to which the local event is to be sent
