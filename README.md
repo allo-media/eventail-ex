@@ -7,6 +7,8 @@ can scale each of them with as many workers as it needs to. Please keep in mind,
 
 This documentation is about the Elixir API specifics; the reader should already master the EDA principles.
 
+[Full documentation](https://eventail-elixir.netlify.app/) on Netlify.
+
 ## Installation
 
 Add Eventail as a dependency to your `mix.exs` file.
