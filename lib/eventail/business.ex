@@ -3,6 +3,8 @@ defmodule Eventail.Business do
   EDA business events and commands/results API
   """
 
+  require Logger
+
   @event_exchange "events"
   @cmd_exchange "commands"
   @event_exchange_type :topic
@@ -287,6 +289,7 @@ defmodule Eventail.Business do
       )
 
     Utils.bind(channel, event_q, @event_exchange, events)
+    Logger.info("Service #{logical_service} subscribed to business events #{inspect(events)}")
     {:ok, _} = AMQP.Basic.consume(channel, event_q)
   end
 
@@ -309,6 +312,7 @@ defmodule Eventail.Business do
       )
 
     Utils.bind(channel, cmd_q, @cmd_exchange, commands)
+    Logger.info("Service #{logical_service} subscribed to commands/results #{inspect(commands)}")
     {:ok, _} = AMQP.Basic.consume(channel, cmd_q)
   end
 

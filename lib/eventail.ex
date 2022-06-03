@@ -119,7 +119,7 @@ defmodule Eventail do
   end
 
   @doc """
-  Publisn an event local to the endpoint.
+  Publish an event local to the endpoint.
   Local events don't go on the EDA.
 
   - `endpoint` is the endpoint descriptor to which the local event is to be sent
@@ -406,11 +406,9 @@ defmodule Eventail do
            delivery_tag: tag,
            headers: :undefined,
            routing_key: routing_key
-         } = context},
+         }},
         %{endpoint: endpoint, business_channel: business_channel} = state
       ) do
-    Logger.debug(inspect(context))
-
     Logging.emergency(
       endpoint,
       "Missing headers",
@@ -430,7 +428,6 @@ defmodule Eventail do
          } = context},
         %{endpoint: endpoint, business_channel: business_channel, setup: setup} = state
       ) do
-    Logger.debug(inspect(context))
     eda_headers = headers(context_headers)
     context = Map.delete(context, :headers) |> Map.put(:app_context, setup.app_context)
 

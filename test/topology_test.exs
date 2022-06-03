@@ -21,8 +21,8 @@ defmodule TopologyTest do
       :ok
     end
 
-    def handle_config(_, _, _, _) do
-      :ok
+    def handle_config(_, _, _, %{app_context: app_context}) do
+      {:ok, app_context}
     end
   end
 
