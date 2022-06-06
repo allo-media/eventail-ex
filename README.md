@@ -16,8 +16,7 @@ Add Eventail as a dependency to your `mix.exs` file.
 ```elixir
 def deps do
   [
-    {:eventail, git:  "https://e58fb7a11af519cbaafd02f4778dbdd9d173595c@github.com/allo-media/elixir-ex.git",
-       tag: "1.0.0"}
+    {:eventail, git: "git@github.com:allo-media/eventail-ex.git", tag: "1.0.0"}
   ]
 end
 ```
