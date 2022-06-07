@@ -8,6 +8,10 @@ defmodule Eventail.MixProject do
       elixir: "~> 1.13",
       test_coverage: [summary: [threshold: 80]],
       start_permanent: Mix.env() == :prod,
+      dialyzer: [
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+        plt_add_apps: [:ex_unit]
+      ],
       deps: deps(),
       docs: [
         main: "readme",
