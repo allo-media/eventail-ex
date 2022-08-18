@@ -86,6 +86,11 @@ defmodule Echo do
     :ok
   end
 
+  def handle_local(_endpoint, _event, _context) do
+    # ignore other local messages
+    :ok
+  end
+
   def handle_config(_, _, _, %{app_context: app_context}) do
     # ignore configuration messages for now
     {:ok, app_context}
