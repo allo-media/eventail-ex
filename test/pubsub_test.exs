@@ -297,7 +297,7 @@ defmodule SubscriptionTest do
     query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 1}], [:"$2"]}]
     msgs = :ets.select(pending, query)
     assert length(msgs) == 2
-    Eventail.handle_info({:basic_nack, 2, false}, %{pending_ack: pending, business_channel: nil})
+    Eventail.handle_info({:basic_nack, 2, false}, %{pending_ack: pending, main_channel: nil})
     msgs2 = :ets.select(pending, query)
     assert length(msgs2) == 1
     msgs3 = :ets.select(pending, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", 2}], [:"$2"]}])
@@ -328,7 +328,7 @@ defmodule SubscriptionTest do
     query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
     msgs = :ets.select(pending, query)
     assert length(msgs) == 3
-    Eventail.handle_info({:basic_nack, 2, true}, %{pending_ack: pending, business_channel: nil})
+    Eventail.handle_info({:basic_nack, 2, true}, %{pending_ack: pending, main_channel: nil})
     msgs2 = :ets.select(pending, query)
     assert length(msgs2) == 1
     assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}
@@ -359,7 +359,7 @@ defmodule SubscriptionTest do
     query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
     msgs = :ets.select(pending, query)
     assert length(msgs) == 3
-    Eventail.handle_info(:check_pending, %{pending_ack: pending, business_channel: 123})
+    Eventail.handle_info(:check_pending, %{pending_ack: pending, main_channel: 123})
     msgs2 = :ets.select(pending, query)
     assert Enum.empty?(msgs2)
     assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}

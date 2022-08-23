@@ -28,13 +28,15 @@ defmodule Eventail.Config do
   #
 
   @doc false
-  @spec setup(AMQP.Channel.t(), String.t(), map()) :: :ok
-  def setup(channel, exchange, setup) do
+  @spec setup(AMQP.Channel.t(), String.t()) :: :ok
+  def setup(channel, exchange) do
     # Configuration is quite "intimate" to the endpoint, to we let it set the exchange name
     # so it can filter incoming messages more easily.
-    :ok = AMQP.Basic.qos(channel, prefetch_count: 3)
     :ok = AMQP.Exchange.declare(channel, exchange, @exchange_type, durable: true)
+  end
 
+  @spec consume(AMQP.Channel.t(), String.t(), map()) :: String.t()
+  def consume(channel, exchange, setup) do
     {:ok, %{queue: config_q}} =
       AMQP.Queue.declare(channel, "",
         exclusive: true,
@@ -43,8 +45,8 @@ defmodule Eventail.Config do
 
     Utils.bind(channel, config_q, exchange, setup.configurations)
     Logger.info("Expecting configuration events #{inspect(setup.configurations)}")
-    {:ok, _} = AMQP.Basic.consume(channel, config_q)
-    :ok
+    {:ok, conf_constag} = AMQP.Basic.consume(channel, config_q)
+    conf_constag
   end
 
   @doc false

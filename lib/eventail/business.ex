@@ -150,20 +150,69 @@ defmodule Eventail.Business do
   #
 
   @doc false
-  @spec setup(AMQP.Channel.t(), atom(), map()) :: :ok
-  def setup(channel, logical_service, %{
-        exclusive_queues: exclusive_queues,
-        prefetch_count: prefetch_count,
-        events: events,
-        commands: commands
+  @spec setup(AMQP.Channel.t(), map()) :: :ok
+  def setup(channel, %{
+        prefetch_count: prefetch_count
       }) do
     :ok = AMQP.Confirm.select(channel)
     :ok = AMQP.Confirm.register_handler(channel, self())
     :ok = AMQP.Basic.qos(channel, prefetch_count: prefetch_count)
     :ok = AMQP.Exchange.declare(channel, @event_exchange, @event_exchange_type, durable: true)
     :ok = AMQP.Exchange.declare(channel, @cmd_exchange, @cmd_exchange_type, durable: true)
-    setup_events(channel, logical_service, exclusive_queues, events)
-    setup_commands(channel, logical_service, exclusive_queues, commands)
+  end
+
+  def consume_events(_, _, %{events: []}) do
+    {:ok, nil}
+  end
+
+  @spec consume_events(AMQP.Channel.t(), atom(), map()) :: {:ok, String.t() | nil}
+  def consume_events(channel, logical_service, %{
+        exclusive_queues: exclusive_queues,
+        events: events
+      }) do
+    evt_qname =
+      if exclusive_queues do
+        ""
+      else
+        "#{logical_service}.events"
+      end
+
+    {:ok, %{queue: event_q}} =
+      AMQP.Queue.declare(channel, evt_qname,
+        exclusive: exclusive_queues,
+        durable: not exclusive_queues
+      )
+
+    Utils.bind(channel, event_q, @event_exchange, events)
+    Logger.info("Service #{logical_service} subscribed to business events #{inspect(events)}")
+    AMQP.Basic.consume(channel, event_q)
+  end
+
+  def consume_commands(_, _, %{commands: []}) do
+    {:ok, nil}
+  end
+
+  @spec consume_commands(AMQP.Channel.t(), atom(), map()) :: {:ok, String.t() | nil}
+  def consume_commands(channel, logical_service, %{
+        exclusive_queues: exclusive_queues,
+        commands: commands
+      }) do
+    cmd_qname =
+      if exclusive_queues do
+        ""
+      else
+        "#{logical_service}.commands"
+      end
+
+    {:ok, %{queue: cmd_q}} =
+      AMQP.Queue.declare(channel, cmd_qname,
+        exclusive: exclusive_queues,
+        durable: not exclusive_queues
+      )
+
+    Utils.bind(channel, cmd_q, @cmd_exchange, commands)
+    Logger.info("Service #{logical_service} subscribed to commands/results #{inspect(commands)}")
+    AMQP.Basic.consume(channel, cmd_q)
   end
 
   @doc false
@@ -268,52 +317,6 @@ defmodule Eventail.Business do
   @doc false
   def command_exchange do
     @cmd_exchange
-  end
-
-  defp setup_events(_, _, _, []) do
-    :ok
-  end
-
-  defp setup_events(channel, logical_service, exclusive_queues, events) do
-    evt_qname =
-      if exclusive_queues do
-        ""
-      else
-        "#{logical_service}.events"
-      end
-
-    {:ok, %{queue: event_q}} =
-      AMQP.Queue.declare(channel, evt_qname,
-        exclusive: exclusive_queues,
-        durable: not exclusive_queues
-      )
-
-    Utils.bind(channel, event_q, @event_exchange, events)
-    Logger.info("Service #{logical_service} subscribed to business events #{inspect(events)}")
-    {:ok, _} = AMQP.Basic.consume(channel, event_q)
-  end
-
-  defp setup_commands(_, _, _, []) do
-    :ok
-  end
-
-  defp setup_commands(channel, logical_service, exclusive_queues, commands) do
-    cmd_qname =
-      if exclusive_queues do
-        ""
-      else
-        "#{logical_service}.commands"
-      end
-
-    {:ok, %{queue: cmd_q}} =
-      AMQP.Queue.declare(channel, cmd_qname,
-        exclusive: exclusive_queues,
-        durable: not exclusive_queues
-      )
-
-    Utils.bind(channel, cmd_q, @cmd_exchange, commands)
-    Logger.info("Service #{logical_service} subscribed to commands/results #{inspect(commands)}")
-    {:ok, _} = AMQP.Basic.consume(channel, cmd_q)
   end
 
   @spec handle_event(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
