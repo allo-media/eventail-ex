@@ -151,8 +151,10 @@ defmodule Eventail do
        endpoint: endpoint,
        connection: nil,
        log_channel: nil,
-       business_channel: nil,
-       conf_channel: nil,
+       main_channel: nil,
+       events_consumer_tag: nil,
+       cmd_consumer_tag: nil,
+       config_consumer_tag: nil,
        pending_ack: :ets.new(logical_service, []),
        setup: setup
      }}
@@ -170,19 +172,15 @@ defmodule Eventail do
   @impl GenServer
   def handle_cast(
         {:emit_config, routing_key, payload, options},
-        %{conf_channel: conf_channel} = state
+        state
       ) do
-    unless conf_channel == nil do
-      AMQP.Basic.publish(conf_channel, @config_exchange, routing_key, payload, options)
-    end
-
-    {:noreply, state}
+    handle_cast({:publish, @config_exchange, routing_key, payload, options}, state)
   end
 
   @impl GenServer
   def handle_cast(
         {:publish, exchange, routing_key, payload, options} = msg,
-        %{business_channel: channel, pending_ack: pending_ack} = state
+        %{main_channel: channel, pending_ack: pending_ack} = state
       ) do
     msg_id =
       if channel != nil do
@@ -240,9 +238,9 @@ defmodule Eventail do
   @impl GenServer
   def handle_info(
         :check_pending,
-        %{pending_ack: pending_ack, business_channel: business_channel} = state
+        %{pending_ack: pending_ack, main_channel: main_channel} = state
       ) do
-    unless business_channel == nil do
+    unless main_channel == nil do
       limit = System.system_time(:second) - @pending_check_interval
       # select msg from ets where stamp <= limit
       messages =
@@ -281,28 +279,36 @@ defmodule Eventail do
         Process.monitor(conn.pid)
         {:ok, log_channel} = Channel.open(conn)
         Logging.setup(log_channel)
-        {:ok, conf_channel} = Channel.open(conn)
-        Config.setup(conf_channel, @config_exchange, setup)
+        {:ok, main_channel} = Channel.open(conn)
+        Config.setup(main_channel, @config_exchange)
+        Business.setup(main_channel, setup)
 
-        business_channel =
-          if Enum.empty?(setup.configurations) do
-            {:ok, business_channel} = Channel.open(conn)
-            Business.setup(business_channel, endpoint.logical_service, setup)
-            send(self(), {:local, :ready})
-            business_channel
-          else
-            send(self(), {:local, :waiting_for_config})
-            nil
-          end
+        if Enum.empty?(setup.configurations) do
+          new_state = %{
+            state
+            | connection: conn,
+              main_channel: main_channel,
+              log_channel: log_channel,
+              events_consumer_tag:
+                Business.consume_events(main_channel, endpoint.logical_service, setup),
+              cmd_consumer_tag:
+                Business.consume_commands(main_channel, endpoint.logical_service, setup)
+          }
 
-        {:noreply,
-         %{
-           state
-           | connection: conn,
-             business_channel: business_channel,
-             log_channel: log_channel,
-             conf_channel: conf_channel
-         }}
+          send(self(), {:local, :ready})
+          {:noreply, new_state}
+        else
+          new_state = %{
+            state
+            | connection: conn,
+              main_channel: main_channel,
+              log_channel: log_channel,
+              config_consumer_tag: Config.consume(main_channel, @config_exchange, setup)
+          }
+
+          send(self(), {:local, :waiting_for_config})
+          {:noreply, new_state}
+        end
 
       {:error, reason} ->
         Logger.error(
@@ -321,7 +327,15 @@ defmodule Eventail do
     send(self(), :connect)
 
     {:noreply,
-     %{state | connection: nil, log_channel: nil, business_channel: nil, conf_channel: nil}}
+     %{
+       state
+       | connection: nil,
+         log_channel: nil,
+         main_channel: nil,
+         events_consumer_tag: nil,
+         cmd_consumer_tag: nil,
+         config_consumer_tag: nil
+     }}
   end
 
   # Confirmation sent by the broker after registering this process as a consumer
@@ -333,14 +347,39 @@ defmodule Eventail do
   # Sent by the broker when the consumer is unexpectedly cancelled (such as after a queue deletion)
   @impl GenServer
   def handle_info(
-        {:basic_cancel, %{consumer_tag: _consumer_tag}},
-        %{business_channel: business_channel, endpoint: endpoint, setup: setup} = state
+        {:basic_cancel, %{consumer_tag: consumer_tag}},
+        %{
+          main_channel: main_channel,
+          endpoint: endpoint,
+          setup: setup,
+          events_consumer_tag: events_tag,
+          cmd_consumer_tag: cmd_tag,
+          config_consumer_tag: conf_tag
+        } = state
       ) do
-    unless business_channel == nil do
-      Business.setup(business_channel, endpoint.logical_service, setup)
-    end
+    unless main_channel == nil do
+      case consumer_tag do
+        ^events_tag ->
+          {:noreply,
+           %{
+             state
+             | events_consumer_tag:
+                 Business.consume_events(main_channel, endpoint.logical_service, setup)
+           }}
 
-    {:noreply, state}
+        ^cmd_tag ->
+          {:noreply,
+           %{
+             state
+             | cmd_consumer_tag:
+                 Business.consume_commands(main_channel, endpoint.logical_service, setup)
+           }}
+
+        ^conf_tag ->
+          {:noreply,
+           %{state | config_consumer_tag: Config.consume(main_channel, @config_exchange, setup)}}
+      end
+    end
   end
 
   # Confirmation sent by the broker to the consumer process after a Basic.cancel
@@ -354,49 +393,39 @@ defmodule Eventail do
         {:basic_deliver, body, %{exchange: @config_exchange} = context},
         %{
           endpoint: endpoint,
-          business_channel: nil,
-          conf_channel: conf_channel,
-          connection: conn,
+          main_channel: main_channel,
+          events_consumer_tag: events_consumer,
+          cmd_consumer_tag: commands_consumer,
           setup: setup
         } = state
       ) do
     # must be a configuration message during startup
     case Config.handle_message(
            endpoint,
-           conf_channel,
+           main_channel,
            body,
            context |> Map.put(:app_context, setup.app_context),
            setup.handlers
          ) do
-      {:ok, app_context} ->
-        {:ok, business_channel} = Channel.open(conn)
-        Business.setup(business_channel, endpoint.logical_service, setup)
+      {:ok, app_context} when events_consumer == nil and commands_consumer == nil ->
+        ect = Business.consume_events(main_channel, endpoint.logical_service, setup)
+        cct = Business.consume_commands(main_channel, endpoint.logical_service, setup)
         send(self(), {:local, :ready})
 
         {:noreply,
-         %{state | business_channel: business_channel, setup: %{setup | app_context: app_context}}}
+         %{
+           state
+           | events_consumer_tag: ect,
+             cmd_consumer_tag: cct,
+             setup: %{setup | app_context: app_context}
+         }}
+
+      {:ok, app_context} ->
+        {:noreply, %{state | setup: %{setup | app_context: app_context}}}
 
       {:wait, app_context} ->
         {:noreply, %{state | setup: %{setup | app_context: app_context}}}
     end
-  end
-
-  @impl GenServer
-  def handle_info(
-        {:basic_deliver, body, %{exchange: @config_exchange} = context},
-        %{endpoint: endpoint, conf_channel: conf_channel, setup: setup} = state
-      ) do
-    # Configuration message during normal operations
-    {_, app_context} =
-      Config.handle_message(
-        endpoint,
-        conf_channel,
-        body,
-        context |> Map.put(:app_context, setup.app_context),
-        setup.handlers
-      )
-
-    {:noreply, %{state | setup: %{setup | app_context: app_context}}}
   end
 
   @impl GenServer
@@ -407,7 +436,7 @@ defmodule Eventail do
            headers: :undefined,
            routing_key: routing_key
          }},
-        %{endpoint: endpoint, business_channel: business_channel} = state
+        %{endpoint: endpoint, main_channel: main_channel} = state
       ) do
     Logging.emergency(
       endpoint,
@@ -416,7 +445,7 @@ defmodule Eventail do
       "none"
     )
 
-    AMQP.Basic.reject(business_channel, tag, requeue: false)
+    AMQP.Basic.reject(main_channel, tag, requeue: false)
     {:noreply, state}
   end
 
@@ -426,7 +455,7 @@ defmodule Eventail do
          %{
            headers: context_headers
          } = context},
-        %{endpoint: endpoint, business_channel: business_channel, setup: setup} = state
+        %{endpoint: endpoint, main_channel: main_channel, setup: setup} = state
       ) do
     eda_headers = headers(context_headers)
     context = Map.delete(context, :headers) |> Map.put(:app_context, setup.app_context)
@@ -435,7 +464,7 @@ defmodule Eventail do
       {:ok, _} =
         Task.start(Business, :handle_message, [
           endpoint,
-          business_channel,
+          main_channel,
           eda_headers,
           body,
           context,
@@ -444,7 +473,7 @@ defmodule Eventail do
     else
       Business.handle_message(
         endpoint,
-        business_channel,
+        main_channel,
         eda_headers,
         body,
         context,
@@ -459,24 +488,19 @@ defmodule Eventail do
   def terminate(reason, %{
         endpoint: endpoint,
         connection: conn,
-        business_channel: business_channel,
-        log_channel: log_channel,
-        conf_channel: conf_channel
+        main_channel: main_channel,
+        log_channel: log_channel
       }) do
     Logger.info(
       "Endpoint #{endpoint.logical_service} shutting down for reason #{inspect(reason)}"
     )
 
-    unless business_channel == nil do
-      Channel.close(business_channel)
+    unless main_channel == nil do
+      Channel.close(main_channel)
     end
 
     unless log_channel == nil do
       Channel.close(log_channel)
-    end
-
-    unless conf_channel == nil do
-      Channel.close(conf_channel)
     end
 
     unless conn == nil do
