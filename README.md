@@ -11,7 +11,7 @@ This documentation is about the Elixir API specifics; the reader should already 
 
 ## Installation
 
-Add Eventail as a dependency to your `mix.exs` file.
+The package can be installed by adding `eventail` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
