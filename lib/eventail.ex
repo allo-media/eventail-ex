@@ -526,7 +526,8 @@ defmodule Eventail do
         {:ok, conn}
 
       {:error, reason} ->
-        Logger.error("Connection to #{host} failed for reason #{inspect(reason)}")
+        domain = String.split(host, "@") |> List.last()
+        Logger.error("Connection to #{domain} failed for reason #{inspect(reason)}")
         connect(hosts)
     end
   end
