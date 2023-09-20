@@ -30,7 +30,7 @@ defmodule Eventail.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:amqp, "~> 3.1.1"},
+      {:amqp, "~> 3.3.0"},
       {:cbor, "~> 1.0.0"},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
