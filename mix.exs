@@ -4,7 +4,7 @@ defmodule Eventail.MixProject do
   def project do
     [
       app: :eventail,
-      version: "1.0.1",
+      version: "1.0.2",
       elixir: "~> 1.13",
       test_coverage: [summary: [threshold: 80]],
       start_permanent: Mix.env() == :prod,
@@ -30,7 +30,7 @@ defmodule Eventail.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:amqp, "~> 3.1.1"},
+      {:amqp, "~> 3.3.0"},
       {:cbor, "~> 1.0.0"},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
