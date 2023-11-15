@@ -13,21 +13,21 @@ defmodule ConfigurationTest do
 
     def handle_event(_endpoint, event, payload, conversation_id, %{app_context: test_pid}) do
       send(test_pid, {event, payload, conversation_id})
-      :ok
+      {:ok, test_pid}
     end
 
     def handle_command(_endpoint, event, payload, conversation_id, reply_to, correlation_id, %{
           app_context: test_pid
         }) do
       send(test_pid, {event, payload, conversation_id, reply_to, correlation_id})
-      :ok
+      {:ok, test_pid}
     end
 
     def handle_result(_endpoint, key, payload, conversation_id, status, correlation_id, %{
           app_context: test_pid
         }) do
       send(test_pid, {key, payload, conversation_id, status, correlation_id})
-      :ok
+      {:ok, test_pid}
     end
 
     def handle_config(_endpoint, "UsersUpdated" = config, payload, %{app_context: test_pid}) do
@@ -42,10 +42,12 @@ defmodule ConfigurationTest do
 
     def handle_local(_endpoint, :ready, %{app_context: test_pid}) do
       send(test_pid, :ready)
+      {:ok, test_pid}
     end
 
     def handle_local(_endpoint, :waiting_for_config, %{app_context: test_pid}) do
       send(test_pid, :waiting_for_config)
+      {:ok, test_pid}
     end
   end
 
