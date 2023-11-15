@@ -36,6 +36,14 @@ defmodule Eventail.Handlers do
     - `conversation_id`: to trace message chains
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
+
+  Return value:
+    - `:ok` to indicated all processing is done (the processed message will be acknowledged to the broker)
+    - `:manual`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
   """
   @callback handle_event(
               endpoint :: Endpoint.t(),
@@ -43,7 +51,7 @@ defmodule Eventail.Handlers do
               payload :: any(),
               conversation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: :ok | :manual
 
   @doc """
   Handle received command.
@@ -58,6 +66,14 @@ defmodule Eventail.Handlers do
     - `correlation_id`: must be copied on the outcome so the sender can match it
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
+
+  Return value:
+    - `:ok` to indicated all processing is done (the processed message will be acknowledged to the broker)
+    - `:manual`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
   """
   @callback handle_command(
               endpoint :: Endpoint.t(),
@@ -67,7 +83,7 @@ defmodule Eventail.Handlers do
               reply_to :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: :ok | :manual
 
   @doc """
   Handle received result (command outcome).
@@ -82,6 +98,14 @@ defmodule Eventail.Handlers do
     - `correlation_id`: this tracing id is the same as the one that was set on the command this message responds to.
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
+
+  Return value:
+    - `:ok` to indicated all processing is done (the processed message will be acknowledged to the broker)
+    - `:manual`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
   """
   @callback handle_result(
               endpoint :: Endpoint.t(),
@@ -91,7 +115,7 @@ defmodule Eventail.Handlers do
               status :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: :ok | :manual
 
   @doc """
   Handle local events.

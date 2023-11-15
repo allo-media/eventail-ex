@@ -10,6 +10,7 @@ defmodule Eventail.Business do
   @event_exchange_type :topic
   @cmd_exchange_type :topic
 
+  alias AMQP.Application.Channel
   alias Eventail.Endpoint
   alias Eventail.Logging
   alias Eventail.Utils
@@ -143,6 +144,40 @@ defmodule Eventail.Business do
           :ok
   def return_error(endpoint, dest, message, conversation_id, correlation_id, mandatory \\ false) do
     return_result(endpoint, "error", dest, message, conversation_id, correlation_id, mandatory)
+  end
+
+  @doc """
+  Manual acknowledge received message.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `delivery_tag`: the delivery tag of the message to acknowledge (from the `context` of the handler callback)
+    * `options`:
+      - `:multiple`:  If set, all messages up to the one specified by `delivery_tag` are acknowledged (default `false`)
+  """
+  @spec ack(Endpoint.t(), Channel.delivery_tag(), keyword()) :: :ok
+  def ack(endpoint, delivery_tag, options \\ []) do
+    GenServer.cast(
+      endpoint.pid,
+      {:manual_ack, delivery_tag, options}
+    )
+  end
+
+  @doc """
+  Manual reject received message.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `delivery_tag`: the delivery tag of the message to acknowledge (from the `context` of the handler callback)
+    * `options`:
+      - `:multiple`:  If set, all messages up to the one specified by `delivery_tag` are rejected (default `false`)
+  """
+  @spec nack(Endpoint.t(), Channel.delivery_tag(), keyword()) :: :ok
+  def nack(endpoint, delivery_tag, options \\ []) do
+    GenServer.cast(
+      endpoint.pid,
+      {:manual_nack, delivery_tag, options}
+    )
   end
 
   #
@@ -334,15 +369,15 @@ defmodule Eventail.Business do
        ) do
     {conversation_id, app_headers} = Map.pop(headers, "conversation_id")
 
-    handlers.handle_event(
-      endpoint,
-      routing_key,
-      payload,
-      conversation_id,
-      Map.merge(context, app_headers)
-    )
-
-    AMQP.Basic.ack(channel, tag)
+    unless handlers.handle_event(
+             endpoint,
+             routing_key,
+             payload,
+             conversation_id,
+             Map.merge(context, app_headers)
+           ) == :manual do
+      AMQP.Basic.ack(channel, tag)
+    end
   end
 
   @spec handle_command(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
@@ -366,30 +401,30 @@ defmodule Eventail.Business do
 
     cond do
       reply_to != :undefined ->
-        handlers.handle_command(
-          endpoint,
-          routing_key,
-          payload,
-          conversation_id,
-          reply_to,
-          correlation_id,
-          app_headers
-        )
-
-        AMQP.Basic.ack(channel, tag)
+        unless handlers.handle_command(
+                 endpoint,
+                 routing_key,
+                 payload,
+                 conversation_id,
+                 reply_to,
+                 correlation_id,
+                 app_headers
+               ) == :manual do
+          AMQP.Basic.ack(channel, tag)
+        end
 
       status ->
-        handlers.handle_result(
-          endpoint,
-          routing_key,
-          payload,
-          conversation_id,
-          status,
-          correlation_id,
-          app_headers
-        )
-
-        AMQP.Basic.ack(channel, tag)
+        unless handlers.handle_result(
+                 endpoint,
+                 routing_key,
+                 payload,
+                 conversation_id,
+                 status,
+                 correlation_id,
+                 app_headers
+               ) == :manual do
+          AMQP.Basic.ack(channel, tag)
+        end
 
       true ->
         Logging.emergency(

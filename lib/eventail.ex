@@ -197,6 +197,18 @@ defmodule Eventail do
   end
 
   @impl GenServer
+  def handle_cast({:manual_ack, delivery_tag, options}, %{main_channel: channel} = state) do
+    AMQP.Basic.ack(channel, delivery_tag, options)
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast({:manual_nack, delivery_tag, options}, %{main_channel: channel} = state) do
+    AMQP.Basic.nack(channel, delivery_tag, options)
+    {:noreply, state}
+  end
+
+  @impl GenServer
   def handle_call(:endpoint, _, %{endpoint: endpoint} = state) do
     {:reply, endpoint, state}
   end
@@ -257,11 +269,11 @@ defmodule Eventail do
   @impl GenServer
   def handle_info({:local, event}, %{endpoint: endpoint, setup: setup} = state) do
     unless setup.handlers == nil do
-      Task.start(setup.handlers, :handle_local, [
+      setup.handlers.handle_local(
         endpoint,
         event,
         %{app_context: setup.app_context}
-      ])
+      )
     end
 
     {:noreply, state}
