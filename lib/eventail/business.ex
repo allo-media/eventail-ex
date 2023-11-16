@@ -309,7 +309,6 @@ defmodule Eventail.Business do
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: not redelivered)
       {:ok, app_context}
-
   catch
     :exit, reason ->
       # Task crash is exceptional and independent from the task, so we always retry
@@ -322,7 +321,6 @@ defmodule Eventail.Business do
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: true)
       {:ok, app_context}
-
   end
 
   @doc false
@@ -383,7 +381,7 @@ defmodule Eventail.Business do
            conversation_id,
            Map.merge(context, app_headers)
          ) do
-      {:manual, app_context} ->
+      {:in_progress, app_context} ->
         {:ok, app_context}
 
       ret ->
@@ -422,7 +420,7 @@ defmodule Eventail.Business do
                correlation_id,
                app_headers
              ) do
-          {:manual, app_context} ->
+          {:in_progress, app_context} ->
             {:ok, app_context}
 
           ret ->
@@ -440,7 +438,7 @@ defmodule Eventail.Business do
                correlation_id,
                app_headers
              ) do
-          {:manual, app_context} ->
+          {:in_progress, app_context} ->
             {:ok, app_context}
 
           ret ->

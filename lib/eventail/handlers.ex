@@ -39,9 +39,9 @@ defmodule Eventail.Handlers do
 
   Return value:
     - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
-    - `{:manual, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
 
-  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
   fed by the broker anymore.
 
   Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
@@ -54,7 +54,7 @@ defmodule Eventail.Handlers do
               payload :: any(),
               conversation_id :: String.t(),
               context :: map()
-            ) :: {:ok, map()} | {:manual, map()}
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle received command.
@@ -72,9 +72,9 @@ defmodule Eventail.Handlers do
 
   Return value:
     - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
-    - `{:manual, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
 
-  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
   fed by the broker anymore.
 
   Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
@@ -89,7 +89,7 @@ defmodule Eventail.Handlers do
               reply_to :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: {:ok, map()} | {:manual, map()}
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle received result (command outcome).
@@ -107,9 +107,9 @@ defmodule Eventail.Handlers do
 
   Return value:
     - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
-    - `{:manual, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
 
-  In case of `:manual`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
   fed by the broker anymore.
 
   Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
@@ -124,7 +124,7 @@ defmodule Eventail.Handlers do
               status :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: {:ok, map()} | {:manual, map()}
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle local events.
