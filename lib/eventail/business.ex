@@ -10,7 +10,6 @@ defmodule Eventail.Business do
   @event_exchange_type :topic
   @cmd_exchange_type :topic
 
-  alias AMQP.Application.Channel
   alias Eventail.Endpoint
   alias Eventail.Logging
   alias Eventail.Utils
