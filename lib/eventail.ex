@@ -261,7 +261,9 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info({:local, event}, %{endpoint: endpoint, setup: setup} = state) do
-    unless setup.handlers == nil do
+    if is_nil(setup.handlers) do
+      {:noreply, state}
+    else
       {:ok, app_context} =
         setup.handlers.handle_local(
           endpoint,
@@ -270,8 +272,6 @@ defmodule Eventail do
         )
 
       {:noreply, %{state | setup: %{setup | app_context: app_context}}}
-    else
-      {:noreply, state}
     end
   end
 
