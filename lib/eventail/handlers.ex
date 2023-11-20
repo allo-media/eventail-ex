@@ -36,6 +36,17 @@ defmodule Eventail.Handlers do
     - `conversation_id`: to trace message chains
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
+
+  Return value:
+    - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
+
+  `new_app_context` is the updated application context (not the whole context! so there is no `app_context` key in there).
   """
   @callback handle_event(
               endpoint :: Endpoint.t(),
@@ -43,7 +54,7 @@ defmodule Eventail.Handlers do
               payload :: any(),
               conversation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle received command.
@@ -58,6 +69,17 @@ defmodule Eventail.Handlers do
     - `correlation_id`: must be copied on the outcome so the sender can match it
     - `context`:  a map of additional headers and properties relevant to the EDA
     (like the `timestamp` that indicates when the event entered the bus)
+
+  Return value:
+    - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
+
+  `new_app_context` is the updated application context (not the whole context! so there is no `app_context` key in there).
   """
   @callback handle_command(
               endpoint :: Endpoint.t(),
@@ -67,7 +89,7 @@ defmodule Eventail.Handlers do
               reply_to :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle received result (command outcome).
@@ -81,7 +103,18 @@ defmodule Eventail.Handlers do
     - `status`: the result status: `"success"` if success, else `"error"`
     - `correlation_id`: this tracing id is the same as the one that was set on the command this message responds to.
     - `context`:  a map of additional headers and properties relevant to the EDA
-    (like the `timestamp` that indicates when the event entered the bus)
+    (like the `timestamp` that indicates when the event entered the bus and `app_context`, the application context)
+
+  Return value:
+    - `{:ok, new_app_context}` to indicate all processing is done (the processed message will be acknowledged to the broker)
+    - `{:in_progress, new_app_context}`: some processing is still on-going, the message will be manually acknowledged (or rejected) later.
+
+  In case of `:in_progress`, the message must be ACK'ed or NACK'ed at some point later otherwise the enpoint won't be
+  fed by the broker anymore.
+
+  Messages are manually ACk'ed with `Eventail.Business.ack/3`, or NACK'ed with `Eventail.Business.nack/3`.
+
+  `new_app_context` is the updated application context (not the whole context! so there is no `app_context` key in there).
   """
   @callback handle_result(
               endpoint :: Endpoint.t(),
@@ -91,7 +124,7 @@ defmodule Eventail.Handlers do
               status :: String.t(),
               correlation_id :: String.t(),
               context :: map()
-            ) :: :ok
+            ) :: {:ok, map()} | {:in_progress, map()}
 
   @doc """
   Handle local events.
@@ -112,25 +145,29 @@ defmodule Eventail.Handlers do
       configuration bus
     - `:ready`: when the endpoint is connected and ready to sent/receive events on the EDA.
 
+  Return value:
+  `new_app_context` is the updated application context (not the whole context! so there is no `app_context` key in there).
 
   To implement a periodic health check (say, every minute), you could do something like
   ```
     @impl
-    def handle_local(endpoint, :ready, _) do
+    def handle_local(endpoint, :ready, context) do
       Eventail.publish_local(endpoint, :health, 60000)
+      {:ok, context[:app_context]}
     end
 
     @impl
     def handle_local(endpoint, :health, context) do
       # do whatever you need to
       Logging.notice(endpoint, ...)
+      {:ok, context[:app_context]}
     end
   ```
 
-
   See also `Eventail.publish_local/3`.
   """
-  @callback handle_local(endpoint :: Endpoint.t(), event :: any(), context :: map()) :: :ok
+  @callback handle_local(endpoint :: Endpoint.t(), event :: any(), context :: map()) ::
+              {:ok, map()}
 
   @doc """
   Handle configuration events.

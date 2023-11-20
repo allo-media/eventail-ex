@@ -39,12 +39,6 @@ defmodule Eventail do
 
   * `:exclusive_queues`: use private, non-durable queues (default to `false`)
   * `:prefetch_count`: tells RabbitMQ how many business events (events and commands) pending acknowledgment to push (default to `10`).
-     If the concurrent message processing option is set, that value is the maximum number of messages
-     handled concurrently.
-  * `:concurrent_handlers`: if set, the incoming messages (except configuration messages) will be processed concurrently, each in its own task (defaults to false).
-     Don't set this option if you must process the incoming messages in order!
-     If message order is not important, concurrency is only useful if your handlers do a lot of work or I/O (
-     for example, they query databases or REST APIs).
   * `:events`: list of the event names (routing keys) to subscribe to (defaults to `[]`)
   * `:commands`: list of the command/result names (routing keys) to subscribe to (defaults to `[]`)
   * `:configurations`: list of the configuration names (routing keys) to subscribe to (defaults to `[]`)
@@ -54,7 +48,6 @@ defmodule Eventail do
   @type option ::
           {:exclusive_queues, boolean()}
           | {:prefetch_count, integer()}
-          | {:concurrent_handlers, boolean()}
           | {:events, list(String.t())}
           | {:commands, list(String.t())}
           | {:configurations, list(String.t())}
@@ -197,6 +190,18 @@ defmodule Eventail do
   end
 
   @impl GenServer
+  def handle_cast({:manual_ack, delivery_tag, options}, %{main_channel: channel} = state) do
+    AMQP.Basic.ack(channel, delivery_tag, options)
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast({:manual_nack, delivery_tag, options}, %{main_channel: channel} = state) do
+    AMQP.Basic.nack(channel, delivery_tag, options)
+    {:noreply, state}
+  end
+
+  @impl GenServer
   def handle_call(:endpoint, _, %{endpoint: endpoint} = state) do
     {:reply, endpoint, state}
   end
@@ -256,15 +261,18 @@ defmodule Eventail do
 
   @impl GenServer
   def handle_info({:local, event}, %{endpoint: endpoint, setup: setup} = state) do
-    unless setup.handlers == nil do
-      Task.start(setup.handlers, :handle_local, [
-        endpoint,
-        event,
-        %{app_context: setup.app_context}
-      ])
-    end
+    if is_nil(setup.handlers) do
+      {:noreply, state}
+    else
+      {:ok, app_context} =
+        setup.handlers.handle_local(
+          endpoint,
+          event,
+          %{app_context: setup.app_context}
+        )
 
-    {:noreply, state}
+      {:noreply, %{state | setup: %{setup | app_context: app_context}}}
+    end
   end
 
   @impl GenServer
@@ -460,17 +468,7 @@ defmodule Eventail do
     eda_headers = headers(context_headers)
     context = Map.delete(context, :headers) |> Map.put(:app_context, setup.app_context)
 
-    if setup.concurrent_handlers do
-      {:ok, _} =
-        Task.start(Business, :handle_message, [
-          endpoint,
-          main_channel,
-          eda_headers,
-          body,
-          context,
-          setup.handlers
-        ])
-    else
+    {:ok, app_context} =
       Business.handle_message(
         endpoint,
         main_channel,
@@ -479,9 +477,8 @@ defmodule Eventail do
         context,
         setup.handlers
       )
-    end
 
-    {:noreply, state}
+    {:noreply, %{state | setup: %{setup | app_context: app_context}}}
   end
 
   @impl GenServer
@@ -542,7 +539,6 @@ defmodule Eventail do
     defaults = %{
       exclusive_queues: false,
       prefetch_count: 10,
-      concurrent_handlers: false,
       events: [],
       commands: [],
       configurations: [],

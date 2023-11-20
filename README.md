@@ -16,10 +16,15 @@ The package can be installed by adding `eventail` to your list of dependencies i
 ```elixir
 def deps do
   [
-    {:eventail, git: "https://e58fb7a11af519cbaafd02f4778dbdd9d173595c@github.com/allo-media/eventail-ex.git", tag: "1.0.0"}
+    {:eventail, git: "https://e58fb7a11af519cbaafd02f4778dbdd9d173595c@github.com/allo-media/eventail-ex.git", tag: "2.0.0"}
   ]
 end
 ```
+
+### API changes from 1.0.0 to 2.0.0
+
+* `concurrent_handlers` support has been removed from the Setup;
+* Now, all handlers must return `{:ok, app_context}` instead of simply `:ok` or nothing. See the API documentation for handlers.
 
 ## Quick start
 
@@ -40,9 +45,9 @@ defmodule Echo do
   alias Eventail.Business
   alias Eventail.Logging
 
-  def handle_event(_endpoint, _event, _payload, _conversation_id, _context) do
+  def handle_event(_endpoint, _event, _payload, _conversation_id, %{app_context: app_context}) do
     # No event subscriptions
-    :ok
+    {:ok, app_context}
   end
 
   def handle_command(
@@ -52,7 +57,7 @@ defmodule Echo do
         conversation_id,
         reply_to,
         correlation_id,
-        _context
+        %{app_context: app_context}
       ) do
     Logging.info(endpoint, "Received Echo command", "Message to echo = #{msg}", conversation_id)
 
@@ -63,19 +68,21 @@ defmodule Echo do
       conversation_id,
       correlation_id
     )
+
+    {:ok, app_context}
   end
 
-  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, _context) do
+  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, %{app_context: app_context}) do
     # No results expected
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_local(endpoint, :ready, _context) do
+  def handle_local(endpoint, :ready, %{app_context: app_context}) do
     Eventail.publish_local(endpoint, :health)
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_local(endpoint, :health, _context) do
+  def handle_local(endpoint, :health, %{app_context: app_context}) do
     Logging.notice(endpoint, "Echo health check", "I'm alive!", UUID.uuid4(),
       custom_gelf: "for the fun",
       another_custom_gelf_field: 123
@@ -83,12 +90,12 @@ defmodule Echo do
 
     # Next health message in one minute
     Eventail.publish_local(endpoint, :health, 60_000)
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_local(_endpoint, _event, _context) do
+  def handle_local(_endpoint, _event, %{app_context: app_context}) do
     # ignore other local messages
-    :ok
+    {:ok, app_context}
   end
 
   def handle_config(_, _, _, %{app_context: app_context}) do
@@ -109,9 +116,9 @@ defmodule Ping do
 
   alias Eventail.Logging
 
-  def handle_event(_endpoint, _event, _payload, _conversation_id, _context) do
+  def handle_event(_endpoint, _event, _payload, _conversation_id, , %{app_context: app_context}) do
     # No event subscriptions
-    :ok
+    {:ok, app_context}
   end
 
   def handle_command(
@@ -121,19 +128,19 @@ defmodule Ping do
         _conversation_id,
         _reply_to,
         _correlation_id,
-        _context
+        , %{app_context: app_context}
       ) do
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_result(endpoint, "ping.Result", %{"echo" => msg}, conversation_id, "success", correlation_id, _context) do
+  def handle_result(endpoint, "ping.Result", %{"echo" => msg}, conversation_id, "success", correlation_id, , %{app_context: app_context}) do
     Logging.info(endpoint, "Received echo", "Echo = #{msg}", conversation_id, correlation_id: correlation_id)
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_local(_endpoint, _event, _context) do
+  def handle_local(_endpoint, _event, , %{app_context: app_context}) do
     # ignore local messages
-    :ok
+    {:ok, app_context}
   end
 
   def handle_config(_, _, _, %{app_context: app_context}) do
@@ -289,10 +296,11 @@ Let's update our Echo handler so that the string reversing can be configured fro
 Add this to the `Echo` module:
 
 ```elixir
-  def handle_local(endpoint, :waiting_for_config, _context) do
+  def handle_local(endpoint, :waiting_for_config, , %{app_context: app_context}) do
     # The naming convention is not defined yet.
     # Should it be `echo.SettingsRequested`, `EchoSettings.needed`…
     Config.publish(endpoint, "EchoSettingsRequested", %{})
+    {:ok, app_context}
   end
 
   def handle_config(endpoint, "EchoSettingsUpdated", %{"reverse" => reverse?}, _) do
@@ -303,6 +311,40 @@ Add this to the `Echo` module:
   end
 ```
 
+And edit the `echo.EchoMessage` handler as:
+
+```
+ def handle_command(
+        endpoint,
+        "echo.EchoMessage",
+        %{"message" => msg},
+        conversation_id,
+        reply_to,
+        correlation_id,
+        %{app_context: %{reverse: reverse?}}
+      ) do
+    Logging.info(endpoint, "Received Echo command", "Message to echo = #{msg}", conversation_id)
+
+    echo =
+      if reverse? do
+        String.reverse(msg)
+      else
+        msg
+      end
+
+    Business.return_success(
+      endpoint,
+      reply_to,
+      %{echo: echo},
+      conversation_id,
+      correlation_id
+    )
+
+    {:ok, %{reverse: reverse?}}
+  end
+
+```
+
 Let's create a configuration server to serve the configuration on the EDA:
 
 ```elixir
@@ -311,9 +353,9 @@ defmodule Configurator do
 
   alias Eventail.Config
 
-  def handle_event(_endpoint, _event, _payload, _conversation_id, _context) do
+  def handle_event(_endpoint, _event, _payload, _conversation_id, , %{app_context: app_context}) do
     # No event subscriptions
-    :ok
+    {:ok, app_context}
   end
 
   def handle_command(
@@ -323,27 +365,28 @@ defmodule Configurator do
         _conversation_id,
         _reply_to,
         _correlation_id,
-        _context
+        , %{app_context: app_context}
       ) do
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, _context) do
+  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, , %{app_context: app_context}) do
     # No results expected
-    :ok
+    {:ok, app_context}
   end
 
-  def handle_local(endpoint, :waiting_for_config, _context) do
+  def handle_local(endpoint, :waiting_for_config, , %{app_context: app_context}) do
     # The Eventail library is mostly used to develop business services, much less often configuration servers.
     # So we didn't bloat the library with additional options for the latter.
     # If your configuration server needs to subscribe to the Business bus too, we use this trick:
     # we send a configuration request to ourselves.
     Config.publish(endpoint, "ConfiguratorStarted", %{})
+    {:ok, app_context}
   end
 
-  def handle_local(_endpoint, _event, _context) do
+  def handle_local(_endpoint, _event, , %{app_context: app_context}) do
     # ignore other local messages
-    :ok
+    {:ok, app_context}
   end
 
   def handle_config(_endpoint, "ConfiguratorStarted", _, %{app_context: app_context}) do

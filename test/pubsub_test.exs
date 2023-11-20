@@ -12,37 +12,40 @@ defmodule SubscriptionTest do
 
     def handle_event(_endpoint, event, payload, conversation_id, %{app_context: test_pid}) do
       send(test_pid, {event, payload, conversation_id})
-      :ok
+      {:ok, test_pid}
     end
 
     def handle_command(_endpoint, event, payload, conversation_id, reply_to, correlation_id, %{
           app_context: test_pid
         }) do
       send(test_pid, {event, payload, conversation_id, reply_to, correlation_id})
-      :ok
+      {:ok, test_pid}
     end
 
     def handle_result(_endpoint, key, payload, conversation_id, status, correlation_id, %{
           app_context: test_pid
         }) do
       send(test_pid, {key, payload, conversation_id, status, correlation_id})
-      :ok
+      {:ok, test_pid}
     end
 
-    def handle_local(endpoint, :ready, _) do
+    def handle_local(endpoint, :ready, %{app_context: test_pid}) do
       Eventail.publish_local(endpoint, :health, 1000)
+      {:ok, test_pid}
     end
 
     def handle_local(_endpoint, :health, %{app_context: test_pid}) do
       send(test_pid, :health)
+      {:ok, test_pid}
     end
 
     def handle_local(_, local_event, %{app_context: test_pid}) do
       send(test_pid, local_event)
+      {:ok, test_pid}
     end
 
-    def handle_config(_, _, _, _) do
-      :ok
+    def handle_config(_, _, _, %{app_context: test_pid}) do
+      {:ok, test_pid}
     end
   end
 

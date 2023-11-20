@@ -145,6 +145,40 @@ defmodule Eventail.Business do
     return_result(endpoint, "error", dest, message, conversation_id, correlation_id, mandatory)
   end
 
+  @doc """
+  Manual acknowledge received message.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `delivery_tag`: the delivery tag of the message to acknowledge (from the `context` of the handler callback)
+    * `options`:
+      - `:multiple`:  If set, all messages up to the one specified by `delivery_tag` are acknowledged (default `false`)
+  """
+  @spec ack(Endpoint.t(), AMQP.Basic.delivery_tag(), keyword()) :: :ok
+  def ack(endpoint, delivery_tag, options \\ []) do
+    GenServer.cast(
+      endpoint.pid,
+      {:manual_ack, delivery_tag, options}
+    )
+  end
+
+  @doc """
+  Manual reject received message.
+
+  The parameters are:
+    * `endpoint`: the descriptor of the endpoint through which the result is to be sent
+    * `delivery_tag`: the delivery tag of the message to acknowledge (from the `context` of the handler callback)
+    * `options`:
+      - `:multiple`:  If set, all messages up to the one specified by `delivery_tag` are rejected (default `false`)
+  """
+  @spec nack(Endpoint.t(), AMQP.Basic.delivery_tag(), keyword()) :: :ok
+  def nack(endpoint, delivery_tag, options \\ []) do
+    GenServer.cast(
+      endpoint.pid,
+      {:manual_nack, delivery_tag, options}
+    )
+  end
+
   #
   # Internal API
   #
@@ -217,7 +251,7 @@ defmodule Eventail.Business do
 
   @doc false
   @spec handle_message(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), binary(), map(), module()) ::
-          :ok
+          {:ok, map()}
   def handle_message(
         endpoint,
         channel,
@@ -228,7 +262,8 @@ defmodule Eventail.Business do
           routing_key: routing_key,
           content_type: content_type,
           exchange: exchange,
-          redelivered: redelivered
+          redelivered: redelivered,
+          app_context: app_context
         } = context,
         handlers
       ) do
@@ -242,6 +277,7 @@ defmodule Eventail.Business do
         )
 
         AMQP.Basic.ack(channel, tag)
+        {:ok, app_context}
 
       {:ok, payload} ->
         if exchange == @event_exchange do
@@ -272,6 +308,7 @@ defmodule Eventail.Business do
       end
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: not redelivered)
+      {:ok, app_context}
   catch
     :exit, reason ->
       # Task crash is exceptional and independent from the task, so we always retry
@@ -283,6 +320,7 @@ defmodule Eventail.Business do
       )
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: true)
+      {:ok, app_context}
   end
 
   @doc false
@@ -293,7 +331,8 @@ defmodule Eventail.Business do
         _,
         %{
           delivery_tag: tag,
-          routing_key: routing_key
+          routing_key: routing_key,
+          app_context: app_context
         },
         _
       ) do
@@ -305,6 +344,7 @@ defmodule Eventail.Business do
     )
 
     AMQP.Basic.ack(channel, tag)
+    {:ok, app_context}
   end
 
   # For tests
@@ -320,7 +360,7 @@ defmodule Eventail.Business do
   end
 
   @spec handle_event(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
-          :ok
+          {:ok, map()}
   defp handle_event(
          endpoint,
          channel,
@@ -334,19 +374,24 @@ defmodule Eventail.Business do
        ) do
     {conversation_id, app_headers} = Map.pop(headers, "conversation_id")
 
-    handlers.handle_event(
-      endpoint,
-      routing_key,
-      payload,
-      conversation_id,
-      Map.merge(context, app_headers)
-    )
+    case handlers.handle_event(
+           endpoint,
+           routing_key,
+           payload,
+           conversation_id,
+           Map.merge(context, app_headers)
+         ) do
+      {:in_progress, app_context} ->
+        {:ok, app_context}
 
-    AMQP.Basic.ack(channel, tag)
+      ret ->
+        AMQP.Basic.ack(channel, tag)
+        ret
+    end
   end
 
   @spec handle_command(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
-          :ok
+          {:ok, map()}
   defp handle_command(
          endpoint,
          channel,
@@ -366,30 +411,40 @@ defmodule Eventail.Business do
 
     cond do
       reply_to != :undefined ->
-        handlers.handle_command(
-          endpoint,
-          routing_key,
-          payload,
-          conversation_id,
-          reply_to,
-          correlation_id,
-          app_headers
-        )
+        case handlers.handle_command(
+               endpoint,
+               routing_key,
+               payload,
+               conversation_id,
+               reply_to,
+               correlation_id,
+               app_headers
+             ) do
+          {:in_progress, app_context} ->
+            {:ok, app_context}
 
-        AMQP.Basic.ack(channel, tag)
+          ret ->
+            AMQP.Basic.ack(channel, tag)
+            ret
+        end
 
       status ->
-        handlers.handle_result(
-          endpoint,
-          routing_key,
-          payload,
-          conversation_id,
-          status,
-          correlation_id,
-          app_headers
-        )
+        case handlers.handle_result(
+               endpoint,
+               routing_key,
+               payload,
+               conversation_id,
+               status,
+               correlation_id,
+               app_headers
+             ) do
+          {:in_progress, app_context} ->
+            {:ok, app_context}
 
-        AMQP.Basic.ack(channel, tag)
+          ret ->
+            AMQP.Basic.ack(channel, tag)
+            ret
+        end
 
       true ->
         Logging.emergency(

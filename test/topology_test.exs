@@ -5,20 +5,20 @@ defmodule TopologyTest do
   defmodule NOPHandler do
     @behaviour Eventail.Handlers
 
-    def handle_event(_arg0, _arg1, _term, _arg3, _map) do
-      :ok
+    def handle_event(_arg0, _arg1, _term, _arg3, %{app_context: app_context}) do
+      {:ok, app_context}
     end
 
-    def handle_command(_arg0, _arg1, _term, _arg3, _arg4, _arg5, _map) do
-      :ok
+    def handle_command(_arg0, _arg1, _term, _arg3, _arg4, _arg5, %{app_context: app_context}) do
+      {:ok, app_context}
     end
 
-    def handle_result(_arg0, _arg1, _term, _arg3, _arg4, _arg5, _map) do
-      :ok
+    def handle_result(_arg0, _arg1, _term, _arg3, _arg4, _arg5, %{app_context: app_context}) do
+      {:ok, app_context}
     end
 
-    def handle_local(_arg0, _any, _map) do
-      :ok
+    def handle_local(_arg0, _any, %{app_context: app_context}) do
+      {:ok, app_context}
     end
 
     def handle_config(_, _, _, %{app_context: app_context}) do
