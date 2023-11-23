@@ -251,7 +251,7 @@ defmodule Eventail.Business do
 
   @doc false
   @spec handle_message(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), binary(), map(), module()) ::
-          {:ok, map()}
+          {:ok, map(), integer() | nil}
   def handle_message(
         endpoint,
         channel,
@@ -277,7 +277,7 @@ defmodule Eventail.Business do
         )
 
         AMQP.Basic.ack(channel, tag)
-        {:ok, app_context}
+        {:ok, app_context, nil}
 
       {:ok, payload} ->
         if exchange == @event_exchange do
@@ -308,7 +308,7 @@ defmodule Eventail.Business do
       end
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: not redelivered)
-      {:ok, app_context}
+      {:ok, app_context, nil}
   catch
     :exit, reason ->
       # Task crash is exceptional and independent from the task, so we always retry
@@ -320,7 +320,7 @@ defmodule Eventail.Business do
       )
 
       :ok = AMQP.Basic.reject(channel, tag, requeue: true)
-      {:ok, app_context}
+      {:ok, app_context, nil}
   end
 
   @doc false
@@ -344,7 +344,7 @@ defmodule Eventail.Business do
     )
 
     AMQP.Basic.ack(channel, tag)
-    {:ok, app_context}
+    {:ok, app_context, nil}
   end
 
   # For tests
@@ -360,10 +360,10 @@ defmodule Eventail.Business do
   end
 
   @spec handle_event(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
-          {:ok, map()}
+          {:ok, map(), integer() | nil}
   defp handle_event(
          endpoint,
-         channel,
+         _channel,
          headers,
          payload,
          %{
@@ -382,16 +382,15 @@ defmodule Eventail.Business do
            Map.merge(context, app_headers)
          ) do
       {:in_progress, app_context} ->
-        {:ok, app_context}
+        {:ok, app_context, nil}
 
-      ret ->
-        AMQP.Basic.ack(channel, tag)
-        ret
+      {:ok, app_context} ->
+        {:ok, app_context, tag}
     end
   end
 
   @spec handle_command(Eventail.Endpoint.t(), AMQP.Channel.t(), map(), map(), map(), module()) ::
-          {:ok, map()}
+          {:ok, map(), integer() | nil}
   defp handle_command(
          endpoint,
          channel,
@@ -421,11 +420,10 @@ defmodule Eventail.Business do
                app_headers
              ) do
           {:in_progress, app_context} ->
-            {:ok, app_context}
+            {:ok, app_context, nil}
 
-          ret ->
-            AMQP.Basic.ack(channel, tag)
-            ret
+          {:ok, app_context} ->
+            {:ok, app_context, tag}
         end
 
       status ->
@@ -439,11 +437,10 @@ defmodule Eventail.Business do
                app_headers
              ) do
           {:in_progress, app_context} ->
-            {:ok, app_context}
+            {:ok, app_context, nil}
 
-          ret ->
-            AMQP.Basic.ack(channel, tag)
-            ret
+          {:ok, app_context} ->
+            {:ok, app_context, tag}
         end
 
       true ->
@@ -455,6 +452,7 @@ defmodule Eventail.Business do
         )
 
         AMQP.Basic.ack(channel, tag)
+        {:ok, context.app_context, nil}
     end
   end
 
