@@ -411,7 +411,7 @@ defmodule SubscriptionTest do
       })
 
     rest = :ets.select(pending, query_less_than_four)
-    assert length(rest) == 0
+    assert Enum.empty?(rest)
     msgs = :ets.select(pending, query_all)
     assert length(msgs) == 3
     assert pending_acks = [{1, 6}]

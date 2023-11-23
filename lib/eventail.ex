@@ -639,12 +639,12 @@ defmodule Eventail do
   defp ack_completed(pending_consumer_acks, pending_publishes, channel) do
     case :ets.first(pending_publishes) do
       :"$end_of_table" ->
-        Enum.map(pending_consumer_acks, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
+        Enum.each(pending_consumer_acks, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
         []
 
       bound ->
         {still_pending, ready} = split_at(pending_consumer_acks, bound)
-        Enum.map(ready, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
+        Enum.each(ready, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
         still_pending
     end
   end
