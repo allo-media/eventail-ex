@@ -297,14 +297,23 @@ defmodule SubscriptionTest do
        {:publish, Business.event_exchange(), "Tested", "mesg3", []}}
     )
 
-    query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 1}], [:"$2"]}]
+    query = [{{:"$1", :_, :"$2"}, [{:<, :"$1", 4}], [:"$2"]}]
     msgs = :ets.select(pending, query)
-    assert length(msgs) == 2
-    Eventail.handle_info({:basic_nack, 2, false}, %{pending_ack: pending, main_channel: nil})
+    assert length(msgs) == 3
+
+    {:noreply, %{pending_consumer_acks: pending_acks}} =
+      Eventail.handle_info({:basic_nack, 2, false}, %{
+        pending_publishes: pending,
+        main_channel: nil,
+        pending_consumer_acks: [{1, 2}],
+        last_published_tag: 3
+      })
+
     msgs2 = :ets.select(pending, query)
-    assert length(msgs2) == 1
-    msgs3 = :ets.select(pending, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", 2}], [:"$2"]}])
-    assert length(msgs3) == 2
+    assert length(msgs2) == 2
+    msgs3 = :ets.select(pending, [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}])
+    assert length(msgs3) == 3
+    assert pending_acks = [{1, 4}]
   end
 
   test "multiple publisher nack" do
@@ -331,15 +340,32 @@ defmodule SubscriptionTest do
     query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
     msgs = :ets.select(pending, query)
     assert length(msgs) == 3
-    Eventail.handle_info({:basic_nack, 2, true}, %{pending_ack: pending, main_channel: nil})
+
+    {:noreply, %{pending_consumer_acks: pending_acks}} =
+      Eventail.handle_info({:basic_nack, 2, true}, %{
+        pending_publishes: pending,
+        main_channel: nil,
+        pending_consumer_acks: [{1, 1}],
+        last_published_tag: 3
+      })
+
     msgs2 = :ets.select(pending, query)
+    assert length(msgs2) == 3
+
+    msgs2 = :ets.select(pending, [{{:"$1", :_, :"$2"}, [{:<, :"$1", 4}], [:"$2"]}])
     assert length(msgs2) == 1
-    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}
-    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg2", []}}
+    assert pending_acks = [{1, 4}]
   end
 
   test "pending ack collector" do
     pending = :ets.new(:test_table, [:public])
+    {:ok, conn} = AMQP.Connection.open(hosts() |> List.first())
+
+    {:ok, chan} = AMQP.Channel.open(conn)
+
+    Eventail.Business.setup(chan, %{
+      prefetch_count: 3
+    })
 
     :ets.insert(
       pending,
@@ -359,15 +385,38 @@ defmodule SubscriptionTest do
        {:publish, Business.event_exchange(), "Tested", "mesg3", []}}
     )
 
-    query = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
-    msgs = :ets.select(pending, query)
+    query_all = [{{:"$1", :_, :"$2"}, [{:>, :"$1", 0}], [:"$2"]}]
+    query_less_than_four = [{{:"$1", :_, :"$2"}, [{:<, :"$1", 4}], [:"$2"]}]
+    msgs = :ets.select(pending, query_all)
     assert length(msgs) == 3
-    Eventail.handle_info(:check_pending, %{pending_ack: pending, main_channel: 123})
-    msgs2 = :ets.select(pending, query)
-    assert Enum.empty?(msgs2)
-    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg1", []}}
-    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg2", []}}
-    assert_receive {:"$gen_cast", {:publish, _, "Tested", "mesg3", []}}
+
+    Eventail.handle_info(:check_pending, %{
+      pending_publishes: pending,
+      main_channel: chan,
+      pending_consumer_acks: [],
+      last_published_tag: 3
+    })
+
+    # segno starts from 0, so the result is the same
+    rest = :ets.select(pending, query_less_than_four)
+    assert length(rest) == 3
+    Process.sleep(5200)
+
+    {:noreply, %{pending_consumer_acks: pending_acks}} =
+      Eventail.handle_info(:check_pending, %{
+        pending_publishes: pending,
+        main_channel: chan,
+        pending_consumer_acks: [{1, 2}],
+        last_published_tag: 3
+      })
+
+    rest = :ets.select(pending, query_less_than_four)
+    assert length(rest) == 0
+    msgs = :ets.select(pending, query_all)
+    assert length(msgs) == 3
+    assert pending_acks = [{1, 6}]
+
+    # TODO: test appended 3 pending publishes and associated pending consumer ACK and new last_published_tag
   end
 
   defp hosts do

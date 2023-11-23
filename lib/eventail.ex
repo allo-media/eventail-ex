@@ -148,7 +148,11 @@ defmodule Eventail do
        events_consumer_tag: nil,
        cmd_consumer_tag: nil,
        config_consumer_tag: nil,
-       pending_ack: :ets.new(logical_service, []),
+       # {message_tag, timestamp, message}
+       pending_publishes: :ets.new(logical_service, [:ordered_set]),
+       last_published_tag: 0,
+       # {delivery_tag, last_published_tag}
+       pending_consumer_acks: [],
        setup: setup
      }}
   end
@@ -173,7 +177,11 @@ defmodule Eventail do
   @impl GenServer
   def handle_cast(
         {:publish, exchange, routing_key, payload, options} = msg,
-        %{main_channel: channel, pending_ack: pending_ack} = state
+        %{
+          main_channel: channel,
+          pending_publishes: pending_publishes,
+          last_published_tag: last_published_tag
+        } = state
       ) do
     msg_id =
       if channel != nil do
@@ -181,12 +189,12 @@ defmodule Eventail do
         :ok = AMQP.Basic.publish(channel, exchange, routing_key, payload, options)
         msg_id
       else
-        # Risk of collision is low
-        System.monotonic_time(:millisecond)
+        # safe as we replay all on reconnect
+        last_published_tag + 1
       end
 
-    :ets.insert(pending_ack, {msg_id, System.system_time(:second), msg})
-    {:noreply, state}
+    :ets.insert(pending_publishes, {msg_id, System.system_time(:second), msg})
+    {:noreply, %{state | last_published_tag: msg_id}}
   end
 
   @impl GenServer
@@ -207,56 +215,95 @@ defmodule Eventail do
   end
 
   @impl GenServer
-  def handle_call(:pending_num, _, %{pending_ack: pending_ack} = state) do
-    {:reply, :ets.info(pending_ack, :size), state}
+  def handle_call(:pending_num, _, %{pending_publishes: pending_publishes} = state) do
+    {:reply, :ets.info(pending_publishes, :size), state}
   end
 
   @impl GenServer
-  def handle_info({:basic_ack, seqno, false}, %{pending_ack: pending_ack} = state) do
-    :ets.delete(pending_ack, seqno)
-    {:noreply, state}
+  def handle_info(
+        {:basic_ack, seqno, false},
+        %{
+          pending_publishes: pending_publishes,
+          pending_consumer_acks: pending_consumer_acks,
+          main_channel: channel
+        } = state
+      ) do
+    :ets.delete(pending_publishes, seqno)
+
+    {:noreply,
+     %{
+       state
+       | pending_consumer_acks: ack_completed(pending_consumer_acks, pending_publishes, channel)
+     }}
   end
 
   @impl GenServer
-  def handle_info({:basic_ack, seqno, true}, %{pending_ack: pending_ack} = state) do
+  def handle_info(
+        {:basic_ack, seqno, true},
+        %{
+          pending_publishes: pending_publishes,
+          pending_consumer_acks: pending_consumer_acks,
+          main_channel: channel
+        } = state
+      ) do
     # select true from ets where msgid <= seqno
-    :ets.select_delete(pending_ack, [{{:"$1", :_, :_}, [{:"=<", :"$1", seqno}], [true]}])
-    {:noreply, state}
+    :ets.select_delete(pending_publishes, [{{:"$1", :_, :_}, [{:"=<", :"$1", seqno}], [true]}])
+
+    {:noreply,
+     %{
+       state
+       | pending_consumer_acks: ack_completed(pending_consumer_acks, pending_publishes, channel)
+     }}
   end
 
   @impl GenServer
-  def handle_info({:basic_nack, seqno, false}, %{pending_ack: pending_ack} = state) do
-    msg = :ets.lookup_element(pending_ack, seqno, 3)
-    :ets.delete(pending_ack, seqno)
-    handle_cast(msg, state)
+  def handle_info({:basic_nack, seqno, false}, %{pending_publishes: pending_publishes} = state) do
+    msg = :ets.lookup_element(pending_publishes, seqno, 3)
+    :ets.delete(pending_publishes, seqno)
+
+    {:noreply,
+     %{last_published_tag: last_published_tag, pending_consumer_acks: pending_consumer_acks} =
+       state} = handle_cast(msg, state)
+
+    {:noreply,
+     %{
+       state
+       | pending_consumer_acks: reschedule_acks(pending_consumer_acks, seqno, last_published_tag)
+     }}
   end
 
   @impl GenServer
-  def handle_info({:basic_nack, seqno, true}, %{pending_ack: pending_ack} = state) do
+  def handle_info({:basic_nack, seqno, true}, %{pending_publishes: pending_publishes} = state) do
     # select msg from ets where msgid <= seqno
-    messages = :ets.select(pending_ack, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [:"$2"]}])
-    :ets.select_delete(pending_ack, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [true]}])
-    resend_messages(messages)
-    {:noreply, state}
+    messages =
+      :ets.select(pending_publishes, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [:"$2"]}])
+
+    keys =
+      :ets.select(pending_publishes, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [:"$1"]}])
+
+    :ets.select_delete(pending_publishes, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", seqno}], [true]}])
+    lower_seqno = List.first(keys)
+
+    %{last_published_tag: last_published_tag, pending_consumer_acks: pending_consumer_acks} =
+      new_state = resend_messages(messages, state)
+
+    {:noreply,
+     %{
+       new_state
+       | pending_consumer_acks:
+           reschedule_acks(pending_consumer_acks, lower_seqno, last_published_tag)
+     }}
   end
 
   @impl GenServer
   def handle_info(
         :check_pending,
-        %{pending_ack: pending_ack, main_channel: main_channel} = state
+        state
       ) do
-    unless main_channel == nil do
-      limit = System.system_time(:second) - @pending_check_interval
-      # select msg from ets where stamp <= limit
-      messages =
-        :ets.select(pending_ack, [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [:"$2"]}])
-
-      :ets.select_delete(pending_ack, [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [true]}])
-      resend_messages(messages)
-    end
+    last_state = flush_pending(state, @pending_check_interval)
 
     Process.send_after(self(), :check_pending, @pending_check_interval_ms)
-    {:noreply, state}
+    {:noreply, last_state}
   end
 
   @impl GenServer
@@ -290,6 +337,7 @@ defmodule Eventail do
         {:ok, main_channel} = Channel.open(conn)
         Config.setup(main_channel, @config_exchange)
         Business.setup(main_channel, setup)
+        state = flush_pending(state, 0)
 
         if Enum.empty?(setup.configurations) do
           new_state = %{
@@ -463,12 +511,18 @@ defmodule Eventail do
          %{
            headers: context_headers
          } = context},
-        %{endpoint: endpoint, main_channel: main_channel, setup: setup} = state
+        %{
+          endpoint: endpoint,
+          main_channel: main_channel,
+          setup: setup,
+          pending_consumer_acks: pending_consumer_acks,
+          last_published_tag: last_published_tag
+        } = state
       ) do
     eda_headers = headers(context_headers)
     context = Map.delete(context, :headers) |> Map.put(:app_context, setup.app_context)
 
-    {:ok, app_context} =
+    {:ok, app_context, tag} =
       Business.handle_message(
         endpoint,
         main_channel,
@@ -478,7 +532,22 @@ defmodule Eventail do
         setup.handlers
       )
 
-    {:noreply, %{state | setup: %{setup | app_context: app_context}}}
+    case {tag, pending_consumer_acks} do
+      {nil, _} ->
+        {:noreply, %{state | setup: %{setup | app_context: app_context}}}
+
+      {val, []} ->
+        AMQP.Basic.ack(main_channel, val)
+        {:noreply, %{state | setup: %{setup | app_context: app_context}}}
+
+      {val, acks} ->
+        {:noreply,
+         %{
+           state
+           | setup: %{setup | app_context: app_context},
+             pending_consumer_acks: [{val, last_published_tag} | acks]
+         }}
+    end
   end
 
   @impl GenServer
@@ -558,12 +627,86 @@ defmodule Eventail do
     config
   end
 
-  defp resend_messages([]) do
-    :ok
+  defp resend_messages([], state) do
+    state
   end
 
-  defp resend_messages([msg | rest]) do
-    GenServer.cast(self(), msg)
-    resend_messages(rest)
+  defp resend_messages([msg | rest], state) do
+    {:noreply, new_state} = handle_cast(msg, state)
+    resend_messages(rest, new_state)
+  end
+
+  defp ack_completed(pending_consumer_acks, pending_publishes, channel) do
+    case :ets.first(pending_publishes) do
+      :"$end_of_table" ->
+        Enum.map(pending_consumer_acks, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
+        []
+
+      bound ->
+        {still_pending, ready} = split_at(pending_consumer_acks, bound)
+        Enum.map(ready, fn {tag, _} -> AMQP.Basic.ack(channel, tag) end)
+        still_pending
+    end
+  end
+
+  defp reschedule_acks(pending_consumer_acks, bound, last_published_tag) do
+    {to_reschedule, keep} = split_at(pending_consumer_acks, bound)
+    reschedule(to_reschedule, keep, last_published_tag)
+  end
+
+  defp reschedule([], acks, _new_bound) do
+    acks
+  end
+
+  defp reschedule([{tag, _} | t], acks, new_bound) do
+    reschedule(t, [{tag, new_bound} | acks], new_bound)
+  end
+
+  defp split_at(pending, lower_bound) do
+    split_at_([], pending, lower_bound)
+  end
+
+  defp split_at_(higher, [], _) do
+    {higher, []}
+  end
+
+  defp split_at_(higher, [{_, bound} = h | t] = lower, lower_bound) do
+    if bound >= lower_bound do
+      split_at_([h | higher], t, lower_bound)
+    else
+      {higher, lower}
+    end
+  end
+
+  defp flush_pending(
+         %{main_channel: main_channel, pending_publishes: pending_publishes} = state,
+         interval
+       ) do
+    if main_channel != nil do
+      limit = System.system_time(:second) - interval
+      # select msg from ets where stamp <= limit
+      messages =
+        :ets.select(pending_publishes, [{{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [:"$2"]}])
+
+      keys =
+        :ets.select(pending_publishes, [{{:"$1", :_, :"$2"}, [{:"=<", :"$1", limit}], [:"$1"]}])
+
+      :ets.select_delete(pending_publishes, [
+        {{:_, :"$1", :"$2"}, [{:"=<", :"$1", limit}], [true]}
+      ])
+
+      %{last_published_tag: last_published_tag, pending_consumer_acks: pending_consumer_acks} =
+        new_state = resend_messages(messages, state)
+
+      lower_seqno = List.first(keys)
+
+      %{
+        new_state
+        | pending_consumer_acks:
+            reschedule_acks(pending_consumer_acks, lower_seqno, last_published_tag)
+      }
+    else
+      state
+    end
   end
 end
