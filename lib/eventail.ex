@@ -329,8 +329,8 @@ defmodule Eventail do
       ) do
     case connect(hosts) do
       {:ok, conn} ->
-        # Get notifications when the connection goes down
         Logger.info("Connected to broker!")
+        # Get notifications when the connection goes down
         Process.monitor(conn.pid)
         {:ok, log_channel} = Channel.open(conn)
         Logging.setup(log_channel)
@@ -390,7 +390,9 @@ defmodule Eventail do
          main_channel: nil,
          events_consumer_tag: nil,
          cmd_consumer_tag: nil,
-         config_consumer_tag: nil
+         config_consumer_tag: nil,
+         last_published_tag: nil,
+         pending_consumer_acks: []
      }}
   end
 
