@@ -518,6 +518,7 @@ defmodule Eventail do
           main_channel: main_channel,
           setup: setup,
           pending_consumer_acks: pending_consumer_acks,
+          pending_publishes: pending_publishes,
           last_published_tag: last_published_tag
         } = state
       ) do
@@ -534,20 +535,20 @@ defmodule Eventail do
         setup.handlers
       )
 
-    case {tag, pending_consumer_acks} do
+    case {tag, :ets.first(pending_publishes)} do
       {nil, _} ->
         {:noreply, %{state | setup: %{setup | app_context: app_context}}}
 
-      {val, []} ->
+      {val, :"$end_of_table"} ->
         AMQP.Basic.ack(main_channel, val)
         {:noreply, %{state | setup: %{setup | app_context: app_context}}}
 
-      {val, acks} ->
+      {val, _} ->
         {:noreply,
          %{
            state
            | setup: %{setup | app_context: app_context},
-             pending_consumer_acks: [{val, last_published_tag} | acks]
+             pending_consumer_acks: [{val, last_published_tag} | pending_consumer_acks]
          }}
     end
   end
