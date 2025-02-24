@@ -2,16 +2,22 @@
 
 An idiomatic library and GenServer to develop Elixir services on the EDA.
 
-As an Eventail endpoint is just an Elixir process, an Elixir application can host multiple logical EDA services, and it
-can scale each of them with as many workers as it needs to. Please keep in mind, though, that incoming messages can be processed in parallel in their own processes, so multiple workers for a logical service are only needed for redundancy or for high data throughput, not for computing power.
+As an Eventail endpoint is just an Elixir process, an Elixir application can
+host multiple logical EDA services, and it can scale each of them with as many
+workers as it needs to. Please keep in mind, though, that incoming messages can
+be processed in parallel in their own processes, so multiple workers for a
+logical service are only needed for redundancy or for high data throughput, not
+for computing power.
 
-This documentation is about the Elixir API specifics; the reader should already master the EDA principles.
+This documentation is about the Elixir API specifics; the reader should already
+master the EDA principles.
 
 [Full documentation](https://eventail-elixir.netlify.app/) on Netlify.
 
 ## Installation
 
-The package can be installed by adding `eventail` to your list of dependencies in `mix.exs`:
+The package can be installed by adding `eventail` to your list of dependencies
+in `mix.exs`:
 
 ```elixir
 def deps do
@@ -28,13 +34,15 @@ end
 
 ## Quick start
 
-First, you need to write the message handlers for your service endpoint, by implementing the `Eventail.Handlers` behavior.
+First, you need to write the message handlers for your service endpoint, by
+implementing the `Eventail.Handlers` behavior.
 
-You can use pattern matching in order to have at least one function clause per subscribed message.
-You don't need to expect and handle messages you won't subscribe too.
+You can use pattern matching in order to have at least one function clause per
+subscribed message.  You don't need to expect and handle messages you won't
+subscribe too.
 
-As an example, we'll implement an Echo utility service that responds to `Echo` commands by returning the input
-payload message, reversed.
+As an example, we'll implement an Echo utility service that responds to `Echo`
+commands by returning the input payload message, reversed.
 
 Example:
 
@@ -104,11 +112,15 @@ defmodule Echo do
   end
 end
 ```
-The example also illustrates how to use the local events to implement the periodic health check.
 
-As you see, every handler takes an endpoint descriptor as input, as do all Eventail API functions.
+The example also illustrates how to use the local events to implement the
+periodic health check.
 
-For more fun, we'll need another service to send the echo commands and receive the results:
+As you see, every handler takes an endpoint descriptor as input, as do all
+Eventail API functions.
+
+For more fun, we'll need another service to send the echo commands and receive
+the results:
 
 ```elixir
 defmodule Ping do
@@ -152,7 +164,7 @@ end
 
 Now, let's see interactively how to start the endpoints and play with them!
 
-```
+```plain
 iex(1)> Eventail.start_link(
   hosts: ["amqp://localhost"],
   logical_service: :echo,
@@ -198,23 +210,24 @@ iex(7)>
 nil
 ```
 
-
 See also:
-  * `t:Eventail.config/0`
-  * `Eventail.start_link/1`
-  * `Eventail.get_endpoint/1`
-  * `Eventail.publish_local/3`
 
+* `t:Eventail.config/0`
+* `Eventail.start_link/1`
+* `Eventail.get_endpoint/1`
+* `Eventail.publish_local/3`
 
 ## Supervision
 
-The endpoint process is monitoring the EDA connection and automatically reconnects without crashing, so that
-no pending messages are lost, and existing endpoint descriptors are still valid.
+The endpoint process is monitoring the EDA connection and automatically
+reconnects without crashing, so that no pending messages are lost, and existing
+endpoint descriptors are still valid.
 
-However, the endpoint can crash in other circumstances, in particular if something goes wrong during the
-configuration step.
+However, the endpoint can crash in other circumstances, in particular if
+something goes wrong during the configuration step.
 
-In a production application, the endpoint should be started under the supervision tree.
+In a production application, the endpoint should be started under the
+supervision tree.
 
 ```elixir
 defmodule Echo.Application do
@@ -251,14 +264,16 @@ end
 
 ## Configuration from the EDA
 
-A new exchange has been added for configuration updates and requests: the `configurations` exchange, so that
-configuration updates and requests have their own name space and "bus".
+A new exchange has been added for configuration updates and requests: the
+`configurations` exchange, so that configuration updates and requests have
+their own name space and "bus".
 
-If an application subscribes to configuration updates, that triggers a new endpoint behavior (in the sense of
-startup sequence, not Elixir interface!).
+If an application subscribes to configuration updates, that triggers a new
+endpoint behavior (in the sense of startup sequence, not Elixir interface!).
 
-In that case, the endpoint won't join the business event bus (the `events` exchange) immediately, but it'll wait
-until the application receives configuration updates and indicates it is ready to proceed.
+In that case, the endpoint won't join the business event bus (the `events`
+exchange) immediately, but it'll wait until the application receives
+configuration updates and indicates it is ready to proceed.
 
 This is the complete startup sequence:
 
@@ -289,7 +304,8 @@ emit the :ready local event                     ->          handle_local
 
 ### Example
 
-Let's update our Echo handler so that the string reversing can be configured from the EDA (on/off).
+Let's update our Echo handler so that the string reversing can be configured
+from the EDA (on/off).
 
 Add this to the `Echo` module:
 
@@ -311,36 +327,35 @@ Add this to the `Echo` module:
 
 And edit the `echo.EchoMessage` handler as:
 
-```
- def handle_command(
-        endpoint,
-        "echo.EchoMessage",
-        %{"message" => msg},
-        conversation_id,
-        reply_to,
-        correlation_id,
-        %{app_context: %{reverse: reverse?}}
-      ) do
-    Logging.info(endpoint, "Received Echo command", "Message to echo = #{msg}", conversation_id)
-
-    echo =
-      if reverse? do
-        String.reverse(msg)
-      else
-        msg
-      end
-
-    Business.return_success(
+```elixir
+def handle_command(
       endpoint,
-      reply_to,
-      %{echo: echo},
+      "echo.EchoMessage",
+      %{"message" => msg},
       conversation_id,
-      correlation_id
-    )
+      reply_to,
+      correlation_id,
+      %{app_context: %{reverse: reverse?}}
+    ) do
+  Logging.info(endpoint, "Received Echo command", "Message to echo = #{msg}", conversation_id)
 
-    {:ok, %{reverse: reverse?}}
-  end
+  echo =
+    if reverse? do
+      String.reverse(msg)
+    else
+      msg
+    end
 
+  Business.return_success(
+    endpoint,
+    reply_to,
+    %{echo: echo},
+    conversation_id,
+    correlation_id
+  )
+
+  {:ok, %{reverse: reverse?}}
+end
 ```
 
 Let's create a configuration server to serve the configuration on the EDA:
@@ -401,7 +416,7 @@ end
 
 Let's try! Start the configuration server first.
 
-```
+```plain
 iex(1)> Eventail.start_link(
 ...(1)>            hosts: ["amqp://localhost"],
 ...(1)>            logical_service: :configurator,
