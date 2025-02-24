@@ -409,7 +409,7 @@ defmodule Eventail.Business do
     app_headers = Map.merge(context, h)
 
     cond do
-      reply_to != :undefined ->
+      reply_to != :undefined and reply_to != "" ->
         case handlers.handle_command(
                endpoint,
                routing_key,

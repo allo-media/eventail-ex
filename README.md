@@ -251,8 +251,6 @@ end
 
 ## Configuration from the EDA
 
-**This is experimental, as no blueprint on the subject has been devised yet**.
-
 A new exchange has been added for configuration updates and requests: the `configurations` exchange, so that
 configuration updates and requests have their own name space and "bus".
 
