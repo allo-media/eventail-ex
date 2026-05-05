@@ -4,8 +4,8 @@ defmodule Eventail.MixProject do
   def project do
     [
       app: :eventail,
-      version: "2.1.1",
-      elixir: "~> 1.13",
+      version: "2.1.2",
+      elixir: "~> 1.17",
       test_coverage: [summary: [threshold: 80]],
       start_permanent: Mix.env() == :prod,
       dialyzer: [
@@ -30,12 +30,13 @@ defmodule Eventail.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:amqp, "~> 3.3.0"},
-      {:cbor, "~> 1.0.0"},
-      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:jason, "~> 1.3"}
+      {:amqp, "~> 4.1.0"},
+      {:amqp_client, "~> 4.2"},
+      {:cbor, "~> 1.0"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.40", only: [:dev, :test], runtime: false},
+      {:jason, "~> 1.4"}
     ]
   end
 end
