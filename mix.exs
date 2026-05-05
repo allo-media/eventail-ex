@@ -5,7 +5,7 @@ defmodule Eventail.MixProject do
     [
       app: :eventail,
       version: "2.1.2",
-      elixir: "~> 1.19",
+      elixir: "~> 1.17",
       test_coverage: [summary: [threshold: 80]],
       start_permanent: Mix.env() == :prod,
       dialyzer: [
