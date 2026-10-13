@@ -87,7 +87,7 @@ jobs:
           command: mix test --cover
 
       - store_test_results:
-          path: _build/test/lib/eventail-rs
+          path: _build/test/lib/eventail
 
       - store_artifacts:
           path: cover
