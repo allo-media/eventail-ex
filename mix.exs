@@ -1,6 +1,8 @@
 defmodule Eventail.MixProject do
   use Mix.Project
 
+  @source_url "https://github.com/allo-media/eventail-ex"
+
   def project do
     [
       app: :eventail,
@@ -13,6 +15,10 @@ defmodule Eventail.MixProject do
         plt_add_apps: [:ex_unit]
       ],
       deps: deps(),
+      description:
+        "Idiomatic Elixir library to build services on an AMQP based Event Driven Architecture.",
+      package: package(),
+      source_url: @source_url,
       docs: [
         main: "readme",
         extras: ["README.md"]
@@ -24,6 +30,14 @@ defmodule Eventail.MixProject do
   def application do
     [
       extra_applications: [:logger]
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files: ~w(lib mix.exs README.md LICENSE .formatter.exs)
     ]
   end
 

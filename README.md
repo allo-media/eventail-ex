@@ -1,6 +1,8 @@
 # Eventail for Elixir
 
-An idiomatic library and GenServer to develop Elixir services on the EDA.
+An idiomatic library and GenServer to develop Elixir services on the EDA
+(Event Driven Architecture): services communicating through events, commands,
+results, logs and configuration messages over RabbitMQ (AMQP) topic exchanges.
 
 As an Eventail endpoint is just an Elixir process, an Elixir application can
 host multiple logical EDA services, and it can scale each of them with as many
@@ -22,7 +24,7 @@ in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:eventail, git: "https://e58fb7a11af519cbaafd02f4778dbdd9d173595c@github.com/allo-media/eventail-ex.git", tag: "2.0.0"}
+    {:eventail, git: "https://github.com/allo-media/eventail-ex.git", tag: "2.1.2"}
   ]
 end
 ```
@@ -128,7 +130,7 @@ defmodule Ping do
 
   alias Eventail.Logging
 
-  def handle_event(_endpoint, _event, _payload, _conversation_id, , %{app_context: app_context}) do
+  def handle_event(_endpoint, _event, _payload, _conversation_id, %{app_context: app_context}) do
     # No event subscriptions
     {:ok, app_context}
   end
@@ -140,17 +142,17 @@ defmodule Ping do
         _conversation_id,
         _reply_to,
         _correlation_id,
-        , %{app_context: app_context}
+        %{app_context: app_context}
       ) do
     {:ok, app_context}
   end
 
-  def handle_result(endpoint, "ping.Result", %{"echo" => msg}, conversation_id, "success", correlation_id, , %{app_context: app_context}) do
+  def handle_result(endpoint, "ping.Result", %{"echo" => msg}, conversation_id, "success", correlation_id, %{app_context: app_context}) do
     Logging.info(endpoint, "Received echo", "Echo = #{msg}", conversation_id, correlation_id: correlation_id)
     {:ok, app_context}
   end
 
-  def handle_local(_endpoint, _event, , %{app_context: app_context}) do
+  def handle_local(_endpoint, _event, %{app_context: app_context}) do
     # ignore local messages
     {:ok, app_context}
   end
@@ -253,6 +255,7 @@ defmodule Echo.Application do
          ]},
         id: :config_service
       )
+    ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -310,7 +313,7 @@ from the EDA (on/off).
 Add this to the `Echo` module:
 
 ```elixir
-  def handle_local(endpoint, :waiting_for_config, , %{app_context: app_context}) do
+  def handle_local(endpoint, :waiting_for_config, %{app_context: app_context}) do
     # The naming convention is not defined yet.
     # Should it be `echo.SettingsRequested`, `EchoSettings.needed`…
     Config.publish(endpoint, "EchoSettingsRequested", %{})
@@ -366,7 +369,7 @@ defmodule Configurator do
 
   alias Eventail.Config
 
-  def handle_event(_endpoint, _event, _payload, _conversation_id, , %{app_context: app_context}) do
+  def handle_event(_endpoint, _event, _payload, _conversation_id, %{app_context: app_context}) do
     # No event subscriptions
     {:ok, app_context}
   end
@@ -378,17 +381,17 @@ defmodule Configurator do
         _conversation_id,
         _reply_to,
         _correlation_id,
-        , %{app_context: app_context}
+        %{app_context: app_context}
       ) do
     {:ok, app_context}
   end
 
-  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, , %{app_context: app_context}) do
+  def handle_result(_endpoint, _key, _payload, _conversation_id, _status, _correlation_id, %{app_context: app_context}) do
     # No results expected
     {:ok, app_context}
   end
 
-  def handle_local(endpoint, :waiting_for_config, , %{app_context: app_context}) do
+  def handle_local(endpoint, :waiting_for_config, %{app_context: app_context}) do
     # The Eventail library is mostly used to develop business services, much less often configuration servers.
     # So we didn't bloat the library with additional options for the latter.
     # If your configuration server needs to subscribe to the Business bus too, we use this trick:
@@ -397,7 +400,7 @@ defmodule Configurator do
     {:ok, app_context}
   end
 
-  def handle_local(_endpoint, _event, , %{app_context: app_context}) do
+  def handle_local(_endpoint, _event, %{app_context: app_context}) do
     # ignore other local messages
     {:ok, app_context}
   end
